@@ -7,9 +7,7 @@ package control
 
 import (
 	"context"
-	"encoding/binary"
 	"math"
-	"net"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -362,53 +360,12 @@ func (c *ControlPlane) SnapshotRuntimeStats(windowSec int, maxPoints int) Runtim
 		udpSessions = DefaultUdpEndpointPool.Len()
 	}
 	snap := c.runtimeStatsStore().snapshot(activeConnections, udpSessions, windowSec, maxPoints, time.Now())
-
-	// Read device traffic from eBPF maps (best-effort; ignore errors if maps are unavailable)
-	if c != nil && c.core != nil && c.core.bpf != nil {
-		if c.core.bpf.DeviceTrafficMap != nil {
-			keyBytes := make([]byte, 16)
-			var val bpfTrafficStats
-			iter := c.core.bpf.DeviceTrafficMap.Iterate()
-			for iter.Next(&keyBytes, &val) {
-				var ipStr string
-				if isIPv4ZeroPrefixSlice(keyBytes) {
-					ipStr = net.IPv4(keyBytes[12], keyBytes[13], keyBytes[14], keyBytes[15]).String()
-				} else {
-					ipStr = net.IP(keyBytes).String()
-				}
-				snap.DeviceTraffics = append(snap.DeviceTraffics, DeviceTraffic{
-					IP:            ipStr,
-					UploadTotal:   val.UploadTotal,
-					DownloadTotal: val.DownloadTotal,
-				})
-			}
-		}
-		if c.core.bpf.ConnTrafficMap != nil {
-			keyBytes := make([]byte, 37)
-			var val bpfTrafficStats
-			iter := c.core.bpf.ConnTrafficMap.Iterate()
-			for iter.Next(&keyBytes, &val) {
-				var srcIpStr, dstIpStr string
-				if isIPv4ZeroPrefixSlice(keyBytes[0:16]) {
-					srcIpStr = net.IPv4(keyBytes[12], keyBytes[13], keyBytes[14], keyBytes[15]).String()
-				} else {
-					srcIpStr = net.IP(keyBytes[0:16]).String()
-				}
-				if isIPv4ZeroPrefixSlice(keyBytes[16:32]) {
-					dstIpStr = net.IPv4(keyBytes[28], keyBytes[29], keyBytes[30], keyBytes[31]).String()
-				} else {
-					dstIpStr = net.IP(keyBytes[16:32]).String()
-				}
-				dport := binary.BigEndian.Uint16(keyBytes[34:36])
-				snap.ConnTraffics = append(snap.ConnTraffics, ConnTraffic{
-					SrcIP:         srcIpStr,
-					DstIP:         dstIpStr,
-					DstPort:       dport,
-					UploadTotal:   val.UploadTotal,
-					DownloadTotal: val.DownloadTotal,
-				})
-			}
-		}
+	// Device/connection traffic from eBPF maps is populated by the controlPlaneCore
+	// via ReadTrafficMaps(), called separately to keep generated-type references out of this file.
+	if c != nil && c.core != nil {
+		devices, conns := c.core.ReadTrafficMaps()
+		snap.DeviceTraffics = devices
+		snap.ConnTraffics = conns
 	}
 	return snap
 }

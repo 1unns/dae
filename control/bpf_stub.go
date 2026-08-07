@@ -144,6 +144,12 @@ type bpfConnState struct {
 	Pid   uint32
 }
 
+type bpfTrafficStats struct {
+	_ structs.HostLayout
+	UploadTotal   uint64
+	DownloadTotal uint64
+}
+
 type bpfDaeEvent struct {
 	_         structs.HostLayout
 	Timestamp uint64
@@ -209,6 +215,8 @@ type bpfMapSpecs struct {
 	RoutingMap              *ebpf.MapSpec `ebpf:"routing_map"`
 	RoutingMetaMap          *ebpf.MapSpec `ebpf:"routing_meta_map"`
 	ConnStateMap            *ebpf.MapSpec `ebpf:"conn_state_map"`
+	DeviceTrafficMap        *ebpf.MapSpec `ebpf:"device_traffic_map"`
+	ConnTrafficMap          *ebpf.MapSpec `ebpf:"conn_traffic_map"`
 	UnusedLpmType           *ebpf.MapSpec `ebpf:"unused_lpm_type"`
 	PktScratchMap           *ebpf.MapSpec `ebpf:"pkt_scratch_map"`
 }
@@ -244,6 +252,8 @@ type bpfMaps struct {
 	RoutingMap              *ebpf.Map `ebpf:"routing_map"`
 	RoutingMetaMap          *ebpf.Map `ebpf:"routing_meta_map"`
 	ConnStateMap            *ebpf.Map `ebpf:"conn_state_map"`
+	DeviceTrafficMap        *ebpf.Map `ebpf:"device_traffic_map"`
+	ConnTrafficMap          *ebpf.Map `ebpf:"conn_traffic_map"`
 	UnusedLpmType           *ebpf.Map `ebpf:"unused_lpm_type"`
 	PktScratchMap           *ebpf.Map `ebpf:"pkt_scratch_map"`
 }
@@ -263,6 +273,8 @@ func (m *bpfMaps) Close() error {
 		m.RoutingMap,
 		m.RoutingMetaMap,
 		m.ConnStateMap,
+		m.DeviceTrafficMap,
+		m.ConnTrafficMap,
 		m.UnusedLpmType,
 		m.PktScratchMap,
 	)
