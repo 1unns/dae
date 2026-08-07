@@ -41,6 +41,7 @@ type DeviceTraffic struct {
 type ConnTraffic struct {
 	SrcIP         string
 	DstIP         string
+	SrcPort       uint16
 	DstPort       uint16
 	UploadTotal   uint64
 	DownloadTotal uint64
