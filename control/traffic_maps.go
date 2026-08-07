@@ -86,6 +86,20 @@ func (c *controlPlaneCore) ReadTrafficMaps() (devices []DeviceTraffic, conns []C
 				continue
 			}
 
+			if bpf.ConnStateMap != nil {
+				var state bpfConnState
+				err := bpf.ConnStateMap.Lookup(&key, &state)
+				if err != nil {
+					// Connection state no longer exists, it is closed
+					continue
+				}
+				// State 0 is ESTABLISHED (for TCP). >0 are closing/closed states.
+				// UDP always has State 0.
+				if state.State > 0 {
+					continue
+				}
+			}
+
 			// Port is in network byte order in bpfTuplesKey?
 			// Wait, let's just use binary.BigEndian on a byte slice to be safe if it's network byte order
 			dportBytes := make([]byte, 2)
