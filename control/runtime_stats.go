@@ -7,7 +7,9 @@ package control
 
 import (
 	"context"
+	"encoding/binary"
 	"math"
+	"net"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -28,6 +30,22 @@ type RuntimeTrafficSample struct {
 	DownloadRate uint64
 }
 
+// DeviceTraffic holds traffic stats for a single LAN device.
+type DeviceTraffic struct {
+	IP            string
+	UploadTotal   uint64
+	DownloadTotal uint64
+}
+
+// ConnTraffic holds traffic stats for a single proxied connection.
+type ConnTraffic struct {
+	SrcIP         string
+	DstIP         string
+	DstPort       uint16
+	UploadTotal   uint64
+	DownloadTotal uint64
+}
+
 // RuntimeStatsSnapshot preserves the traffic-latency branch's exported API.
 type RuntimeStatsSnapshot struct {
 	UpdatedAt         time.Time
@@ -38,6 +56,8 @@ type RuntimeStatsSnapshot struct {
 	ActiveConnections int
 	UDPSessions       int
 	Samples           []RuntimeTrafficSample
+	DeviceTraffics    []DeviceTraffic
+	ConnTraffics      []ConnTraffic
 }
 
 type runtimeBucket struct {
@@ -341,7 +361,56 @@ func (c *ControlPlane) SnapshotRuntimeStats(windowSec int, maxPoints int) Runtim
 		activeConnections = c.ActiveTCPConnections()
 		udpSessions = DefaultUdpEndpointPool.Len()
 	}
-	return c.runtimeStatsStore().snapshot(activeConnections, udpSessions, windowSec, maxPoints, time.Now())
+	snap := c.runtimeStatsStore().snapshot(activeConnections, udpSessions, windowSec, maxPoints, time.Now())
+
+	// Read device traffic from eBPF maps (best-effort; ignore errors if maps are unavailable)
+	if c != nil && c.core != nil && c.core.bpf != nil {
+		if c.core.bpf.DeviceTrafficMap != nil {
+			keyBytes := make([]byte, 16)
+			var val bpfTrafficStats
+			iter := c.core.bpf.DeviceTrafficMap.Iterate()
+			for iter.Next(&keyBytes, &val) {
+				var ipStr string
+				if isIPv4ZeroPrefixSlice(keyBytes) {
+					ipStr = net.IPv4(keyBytes[12], keyBytes[13], keyBytes[14], keyBytes[15]).String()
+				} else {
+					ipStr = net.IP(keyBytes).String()
+				}
+				snap.DeviceTraffics = append(snap.DeviceTraffics, DeviceTraffic{
+					IP:            ipStr,
+					UploadTotal:   val.UploadTotal,
+					DownloadTotal: val.DownloadTotal,
+				})
+			}
+		}
+		if c.core.bpf.ConnTrafficMap != nil {
+			keyBytes := make([]byte, 37)
+			var val bpfTrafficStats
+			iter := c.core.bpf.ConnTrafficMap.Iterate()
+			for iter.Next(&keyBytes, &val) {
+				var srcIpStr, dstIpStr string
+				if isIPv4ZeroPrefixSlice(keyBytes[0:16]) {
+					srcIpStr = net.IPv4(keyBytes[12], keyBytes[13], keyBytes[14], keyBytes[15]).String()
+				} else {
+					srcIpStr = net.IP(keyBytes[0:16]).String()
+				}
+				if isIPv4ZeroPrefixSlice(keyBytes[16:32]) {
+					dstIpStr = net.IPv4(keyBytes[28], keyBytes[29], keyBytes[30], keyBytes[31]).String()
+				} else {
+					dstIpStr = net.IP(keyBytes[16:32]).String()
+				}
+				dport := binary.BigEndian.Uint16(keyBytes[34:36])
+				snap.ConnTraffics = append(snap.ConnTraffics, ConnTraffic{
+					SrcIP:         srcIpStr,
+					DstIP:         dstIpStr,
+					DstPort:       dport,
+					UploadTotal:   val.UploadTotal,
+					DownloadTotal: val.DownloadTotal,
+				})
+			}
+		}
+	}
+	return snap
 }
 
 func bucketizeRuntimeSamples(samples []RuntimeTrafficSample, maxPoints int) []RuntimeTrafficSample {
