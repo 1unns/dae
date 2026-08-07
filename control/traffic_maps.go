@@ -91,10 +91,14 @@ func (c *controlPlaneCore) ReadTrafficMaps() (devices []DeviceTraffic, conns []C
 			dportBytes := make([]byte, 2)
 			binary.LittleEndian.PutUint16(dportBytes, key.Dport)
 			dport := binary.BigEndian.Uint16(dportBytes)
+			sportBytes := make([]byte, 2)
+			binary.LittleEndian.PutUint16(sportBytes, key.Sport)
+			sport := binary.BigEndian.Uint16(sportBytes)
 
 			conns = append(conns, ConnTraffic{
 				SrcIP:         srcIpStr,
 				DstIP:         dstIpStr,
+				SrcPort:       sport,
 				DstPort:       dport,
 				UploadTotal:   val.ProxyUploadTotal + val.DirectUploadTotal,
 				DownloadTotal: val.ProxyDownloadTotal + val.DirectDownloadTotal,
