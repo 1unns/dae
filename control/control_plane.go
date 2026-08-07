@@ -2579,12 +2579,18 @@ func (c *ControlPlane) cleanupConnStateMapBeforeLocked(aggressiveCleanup bool, s
 		if _, err := BpfMapBatchDelete(bpf.ConnStateMap, udpKeysToDelete); err != nil {
 			c.log.Debugf("cleanupConnStateMap: UDP batch delete error: %v", err)
 		}
+		if bpf.ConnTrafficMap != nil {
+			_, _ = BpfMapBatchDelete(bpf.ConnTrafficMap, udpKeysToDelete)
+		}
 	}
 	udpStats.deleted = len(udpKeysToDelete)
 
 	if len(tcpKeysToDelete) > 0 {
 		if _, err := BpfMapBatchDelete(bpf.ConnStateMap, tcpKeysToDelete); err != nil {
 			c.log.Debugf("cleanupConnStateMap: TCP batch delete error: %v", err)
+		}
+		if bpf.ConnTrafficMap != nil {
+			_, _ = BpfMapBatchDelete(bpf.ConnTrafficMap, tcpKeysToDelete)
 		}
 	}
 	tcpStats.deleted = len(tcpKeysToDelete)
