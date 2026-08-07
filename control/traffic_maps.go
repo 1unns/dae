@@ -75,3 +75,9 @@ func keyBytesToArray(b []byte) [16]uint8 {
 	copy(arr[:], b)
 	return arr
 }
+
+func isIPv4ZeroPrefix(ip [16]uint8) bool {
+	return ip[0] == 0 && ip[1] == 0 && ip[2] == 0 && ip[3] == 0 &&
+		ip[4] == 0 && ip[5] == 0 && ip[6] == 0 && ip[7] == 0 &&
+		ip[8] == 0 && ip[9] == 0 && ip[10] == 255 && ip[11] == 255
+}

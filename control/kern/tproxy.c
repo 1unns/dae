@@ -383,6 +383,29 @@ struct {
 	__uint(map_flags, BPF_F_NO_PREALLOC);
 } conn_state_map SEC(".maps");
 
+struct traffic_stats {
+	__u64 upload_total;
+	__u64 download_total;
+};
+
+struct {
+	__uint(type, BPF_MAP_TYPE_HASH);
+	__uint(max_entries, MAX_CONN_STATE_NUM);
+	__type(key, struct tuples_key);
+	__type(value, struct traffic_stats);
+	__uint(pinning, LIBBPF_PIN_BY_NAME);
+	__uint(map_flags, BPF_F_NO_PREALLOC);
+} conn_traffic_map SEC(".maps");
+
+struct {
+	__uint(type, BPF_MAP_TYPE_HASH);
+	__uint(max_entries, 1024);
+	__type(key, union ip6);
+	__type(value, struct traffic_stats);
+	__uint(pinning, LIBBPF_PIN_BY_NAME);
+	__uint(map_flags, BPF_F_NO_PREALLOC);
+} device_traffic_map SEC(".maps");
+
 // key=0: UDP conn overflow count; key=1: TCP conn overflow count.
 struct {
 	__uint(type, BPF_MAP_TYPE_ARRAY);
