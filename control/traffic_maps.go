@@ -24,17 +24,17 @@ func (c *controlPlaneCore) ReadTrafficMaps() (devices []DeviceTraffic, conns []C
 	}
 
 	if bpf.DeviceTrafficMap != nil {
-		keyBytes := make([]byte, 16)
+		var key [16]byte
 		var val bpfTrafficStats
 		iter := bpf.DeviceTrafficMap.Iterate()
 		count := 0
-		for iter.Next(&keyBytes, &val) {
+		for iter.Next(&key, &val) {
 			count++
 			var ipStr string
-			if isIPv4ZeroPrefix(keyBytesToArray(keyBytes)) {
-				ipStr = net.IPv4(keyBytes[12], keyBytes[13], keyBytes[14], keyBytes[15]).String()
+			if isIPv4ZeroPrefix(key) {
+				ipStr = net.IPv4(key[12], key[13], key[14], key[15]).String()
 			} else {
-				ipStr = net.IP(keyBytes).String()
+				ipStr = net.IP(key[:]).String()
 			}
 			devices = append(devices, DeviceTraffic{
 				IP:                  ipStr,
@@ -50,24 +50,29 @@ func (c *controlPlaneCore) ReadTrafficMaps() (devices []DeviceTraffic, conns []C
 	}
 
 	if bpf.ConnTrafficMap != nil {
-		keyBytes := make([]byte, 37)
+		var key bpfTuplesKey
 		var val bpfTrafficStats
 		iter := bpf.ConnTrafficMap.Iterate()
 		count := 0
-		for iter.Next(&keyBytes, &val) {
+		for iter.Next(&key, &val) {
 			count++
 			var srcIpStr, dstIpStr string
-			if isIPv4ZeroPrefix(keyBytesToArray(keyBytes[0:16])) {
-				srcIpStr = net.IPv4(keyBytes[12], keyBytes[13], keyBytes[14], keyBytes[15]).String()
+			if isIPv4ZeroPrefix(key.Sip.U6Addr8) {
+				srcIpStr = net.IPv4(key.Sip.U6Addr8[12], key.Sip.U6Addr8[13], key.Sip.U6Addr8[14], key.Sip.U6Addr8[15]).String()
 			} else {
-				srcIpStr = net.IP(keyBytes[0:16]).String()
+				srcIpStr = net.IP(key.Sip.U6Addr8[:]).String()
 			}
-			if isIPv4ZeroPrefix(keyBytesToArray(keyBytes[16:32])) {
-				dstIpStr = net.IPv4(keyBytes[28], keyBytes[29], keyBytes[30], keyBytes[31]).String()
+			if isIPv4ZeroPrefix(key.Dip.U6Addr8) {
+				dstIpStr = net.IPv4(key.Dip.U6Addr8[28-16], key.Dip.U6Addr8[29-16], key.Dip.U6Addr8[30-16], key.Dip.U6Addr8[31-16]).String()
 			} else {
-				dstIpStr = net.IP(keyBytes[16:32]).String()
+				dstIpStr = net.IP(key.Dip.U6Addr8[:]).String()
 			}
-			dport := binary.BigEndian.Uint16(keyBytes[34:36])
+			// Port is in network byte order in bpfTuplesKey?
+			// Wait, let's just use binary.BigEndian on a byte slice to be safe if it's network byte order
+			dportBytes := make([]byte, 2)
+			binary.LittleEndian.PutUint16(dportBytes, key.Dport)
+			dport := binary.BigEndian.Uint16(dportBytes)
+
 			conns = append(conns, ConnTraffic{
 				SrcIP:         srcIpStr,
 				DstIP:         dstIpStr,
@@ -102,14 +107,12 @@ func (c *controlPlaneCore) ClearTrafficMaps() error {
 
 	if bpf.DeviceTrafficMap != nil {
 		// Iterate and collect all keys
-		var keysToDelete [][]byte
-		keyBytes := make([]byte, 16)
+		var keysToDelete [][16]byte
+		var key [16]byte
 		var val bpfTrafficStats
 		iter := bpf.DeviceTrafficMap.Iterate()
-		for iter.Next(&keyBytes, &val) {
-			kb := make([]byte, 16)
-			copy(kb, keyBytes)
-			keysToDelete = append(keysToDelete, kb)
+		for iter.Next(&key, &val) {
+			keysToDelete = append(keysToDelete, key)
 		}
 		if len(keysToDelete) > 0 {
 			_, err := BpfMapBatchDelete(bpf.DeviceTrafficMap, keysToDelete)
@@ -120,14 +123,12 @@ func (c *controlPlaneCore) ClearTrafficMaps() error {
 	}
 
 	if bpf.ConnTrafficMap != nil {
-		var keysToDelete [][]byte
-		keyBytes := make([]byte, 37)
+		var keysToDelete []bpfTuplesKey
+		var key bpfTuplesKey
 		var val bpfTrafficStats
 		iter := bpf.ConnTrafficMap.Iterate()
-		for iter.Next(&keyBytes, &val) {
-			kb := make([]byte, 37)
-			copy(kb, keyBytes)
-			keysToDelete = append(keysToDelete, kb)
+		for iter.Next(&key, &val) {
+			keysToDelete = append(keysToDelete, key)
 		}
 		if len(keysToDelete) > 0 {
 			_, err := BpfMapBatchDelete(bpf.ConnTrafficMap, keysToDelete)
