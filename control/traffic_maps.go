@@ -8,6 +8,8 @@ package control
 import (
 	"encoding/binary"
 	"net"
+
+	"github.com/sirupsen/logrus"
 )
 
 // ReadTrafficMaps reads device and connection traffic statistics from eBPF maps.
@@ -25,7 +27,9 @@ func (c *controlPlaneCore) ReadTrafficMaps() (devices []DeviceTraffic, conns []C
 		keyBytes := make([]byte, 16)
 		var val bpfTrafficStats
 		iter := bpf.DeviceTrafficMap.Iterate()
+		count := 0
 		for iter.Next(&keyBytes, &val) {
+			count++
 			var ipStr string
 			if isIPv4ZeroPrefix(keyBytesToArray(keyBytes)) {
 				ipStr = net.IPv4(keyBytes[12], keyBytes[13], keyBytes[14], keyBytes[15]).String()
@@ -38,13 +42,18 @@ func (c *controlPlaneCore) ReadTrafficMaps() (devices []DeviceTraffic, conns []C
 				DownloadTotal: val.DownloadTotal,
 			})
 		}
+		if err := iter.Err(); err != nil {
+			logrus.Errorf("DeviceTrafficMap Iterate error: %v", err)
+		}
 	}
 
 	if bpf.ConnTrafficMap != nil {
 		keyBytes := make([]byte, 37)
 		var val bpfTrafficStats
 		iter := bpf.ConnTrafficMap.Iterate()
+		count := 0
 		for iter.Next(&keyBytes, &val) {
+			count++
 			var srcIpStr, dstIpStr string
 			if isIPv4ZeroPrefix(keyBytesToArray(keyBytes[0:16])) {
 				srcIpStr = net.IPv4(keyBytes[12], keyBytes[13], keyBytes[14], keyBytes[15]).String()
@@ -65,9 +74,13 @@ func (c *controlPlaneCore) ReadTrafficMaps() (devices []DeviceTraffic, conns []C
 				DownloadTotal: val.DownloadTotal,
 			})
 		}
+		if err := iter.Err(); err != nil {
+			logrus.Errorf("ConnTrafficMap Iterate error: %v", err)
+		}
 	}
 	return devices, conns
 }
+
 
 // keyBytesToArray converts a byte slice to a [16]uint8 array for isIPv4ZeroPrefix.
 func keyBytesToArray(b []byte) [16]uint8 {
