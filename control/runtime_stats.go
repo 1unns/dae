@@ -331,7 +331,7 @@ func (c *ControlPlane) SnapshotRuntimeStats(windowSec int, maxPoints int) Runtim
 			iter := c.core.bpf.DeviceTrafficMap.Iterate()
 			for iter.Next(&keyBytes, &val) {
 				var ipStr string
-				if isIPv4ZeroPrefix(keyBytes) {
+				if isIPv4ZeroPrefixSlice(keyBytes) {
 					ipStr = net.IPv4(keyBytes[12], keyBytes[13], keyBytes[14], keyBytes[15]).String()
 				} else {
 					ipStr = net.IP(keyBytes).String()
@@ -361,7 +361,6 @@ func (c *ControlPlane) SnapshotRuntimeStats(windowSec int, maxPoints int) Runtim
 					dstIpStr = net.IP(keyBytes[16:32]).String()
 				}
 				
-				sport := binary.BigEndian.Uint16(keyBytes[32:34])
 				dport := binary.BigEndian.Uint16(keyBytes[34:36])
 				
 				snap.ConnTraffics = append(snap.ConnTraffics, ConnTraffic{
