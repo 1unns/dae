@@ -82,7 +82,7 @@ func (c *controlPlaneCore) ReadTrafficMaps() (devices []DeviceTraffic, conns []C
 			}
 			dstIpStr = dstIP.String()
 
-			if !isValidConn(srcIP, dstIP, localIPs) {
+			if !isValidConn(srcIP, dstIP, localIPs, localSubnets) {
 				continue
 			}
 
@@ -202,7 +202,7 @@ func isValidDeviceIP(ip net.IP, subnets []*net.IPNet) bool {
 	return false
 }
 
-func isValidConn(srcIP, dstIP net.IP, localIPs map[string]struct{}) bool {
+func isValidConn(srcIP, dstIP net.IP, localIPs map[string]struct{}, subnets []*net.IPNet) bool {
 	if dstIP == nil || srcIP == nil {
 		return false
 	}
@@ -218,6 +218,12 @@ func isValidConn(srcIP, dstIP net.IP, localIPs map[string]struct{}) bool {
 	// Hide connections destined to the node itself (e.g. dashboard polling)
 	if _, ok := localIPs[dstIP.String()]; ok {
 		return false
+	}
+	// Hide LAN-to-LAN connections
+	for _, subnet := range subnets {
+		if subnet.Contains(dstIP) {
+			return false
+		}
 	}
 	return true
 }

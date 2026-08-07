@@ -1972,7 +1972,23 @@ static __always_inline bool is_new_tcp_connection(const struct tcphdr *tcph)
 	return tcph->syn && !tcph->ack;
 }
 
+static __always_inline bool is_multicast_or_broadcast(const union ip6 *ip) {
+	if (ip->u6_addr32[0] == 0 && ip->u6_addr32[1] == 0 && ip->u6_addr32[2] == bpf_htonl(0x0000ffff)) {
+		__u32 v4 = bpf_ntohl(ip->u6_addr32[3]);
+		if (v4 == 0xffffffff) return true; // 255.255.255.255
+		if ((v4 & 0xf0000000) == 0xe0000000) return true; // 224.0.0.0/4
+	} else {
+		// IPv6 multicast: ff00::/8
+		if (ip->u6_addr8[0] == 0xff) return true;
+	}
+	return false;
+}
+
 static __always_inline void accumulate_traffic_stats(__u32 len, const union ip6 *device_ip, const struct tuples_key *conn_key, bool is_upload, bool is_proxy) {
+	if (is_multicast_or_broadcast(&conn_key->dip) || is_multicast_or_broadcast(&conn_key->sip)) {
+		return;
+	}
+
 	struct traffic_stats *stats;
 	struct traffic_stats initial_stats = {0, 0, 0, 0};
 	
