@@ -196,7 +196,7 @@ func IsIgnorableTCPRelayError(err error) bool {
 	}
 
 	// Fast path: sentinel errors (pointer comparison only)
-	if errors.Is(err, io.EOF) || errors.Is(err, os.ErrDeadlineExceeded) {
+	if errors.Is(err, io.EOF) || errors.Is(err, os.ErrDeadlineExceeded) || errors.Is(err, io.ErrClosedPipe) {
 		return true
 	}
 
