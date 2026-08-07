@@ -1970,6 +1970,37 @@ static __always_inline bool is_new_tcp_connection(const struct tcphdr *tcph)
 	return tcph->syn && !tcph->ack;
 }
 
+static __always_inline void accumulate_traffic_stats(__u32 len, const union ip6 *device_ip, const struct tuples_key *conn_key, bool is_upload) {
+	struct traffic_stats *stats;
+	struct traffic_stats initial_stats = {0, 0};
+	
+	stats = bpf_map_lookup_elem(&device_traffic_map, device_ip);
+	if (!stats) {
+		bpf_map_update_elem(&device_traffic_map, device_ip, &initial_stats, BPF_ANY);
+		stats = bpf_map_lookup_elem(&device_traffic_map, device_ip);
+	}
+	if (stats) {
+		if (is_upload) {
+			__sync_fetch_and_add(&stats->upload_total, len);
+		} else {
+			__sync_fetch_and_add(&stats->download_total, len);
+		}
+	}
+
+	stats = bpf_map_lookup_elem(&conn_traffic_map, conn_key);
+	if (!stats) {
+		bpf_map_update_elem(&conn_traffic_map, conn_key, &initial_stats, BPF_ANY);
+		stats = bpf_map_lookup_elem(&conn_traffic_map, conn_key);
+	}
+	if (stats) {
+		if (is_upload) {
+			__sync_fetch_and_add(&stats->upload_total, len);
+		} else {
+			__sync_fetch_and_add(&stats->download_total, len);
+		}
+	}
+}
+
 // Reverse-direction conntrack refresh for LAN egress.
 static __noinline int do_tproxy_lan_egress(struct __sk_buff *skb, __u32 link_h_len)
 {
@@ -2005,6 +2036,7 @@ static __noinline int do_tproxy_lan_egress(struct __sk_buff *skb, __u32 link_h_l
 		get_tuples(skb, &tuples, &ctx->iph, &ctx->ipv6h,
 			   &ctx->tcph, &ctx->udph, ctx->l4proto);
 		copy_reversed_tuples(&tuples.five, &reversed_tuples_key);
+		accumulate_traffic_stats(skb->len, &tuples.five.dip, &reversed_tuples_key, false);
 		// Reverse-side TCP packets should refresh the forward conn-state and
 		// surface FIN/RST so the lifecycle does not remain ACTIVE until the
 		// janitor backstop expires.
@@ -2021,6 +2053,7 @@ static __noinline int do_tproxy_lan_egress(struct __sk_buff *skb, __u32 link_h_l
 		get_tuples(skb, &tuples, &ctx->iph, &ctx->ipv6h,
 			   &ctx->tcph, &ctx->udph, ctx->l4proto);
 		copy_reversed_tuples(&tuples.five, &reversed_tuples_key);
+		accumulate_traffic_stats(skb->len, &tuples.five.dip, &reversed_tuples_key, false);
 		mark_udp_seen(&reversed_tuples_key, true,
 			      NULL, NULL, NULL, NULL,
 			      0, NULL, 0);
@@ -2095,6 +2128,10 @@ static __noinline int do_tproxy_lan_ingress(struct __sk_buff *skb, __u32 link_h_
 			return TC_ACT_SHOT;
 		}
 		return TC_ACT_OK;
+	}
+
+	if (pkt->l4proto == IPPROTO_TCP || pkt->l4proto == IPPROTO_UDP) {
+		accumulate_traffic_stats(skb->len, &pkt->tuples.five.sip, &pkt->tuples.five, true);
 	}
 
 	/*
