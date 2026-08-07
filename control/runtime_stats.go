@@ -326,18 +326,15 @@ func (c *ControlPlane) SnapshotRuntimeStats(windowSec int, maxPoints int) Runtim
 
 	if c != nil && c.core != nil && c.core.bpf != nil {
 		if c.core.bpf.DeviceTrafficMap != nil {
-			var key struct {
-				_       [0]uint8
-				U6Addr8 [16]uint8
-			}
+			keyBytes := make([]byte, 16)
 			var val bpfTrafficStats
 			iter := c.core.bpf.DeviceTrafficMap.Iterate()
-			for iter.Next(&key, &val) {
+			for iter.Next(&keyBytes, &val) {
 				var ipStr string
-				if isIPv4ZeroPrefix(key.U6Addr8) {
-					ipStr = net.IPv4(key.U6Addr8[12], key.U6Addr8[13], key.U6Addr8[14], key.U6Addr8[15]).String()
+				if isIPv4ZeroPrefix(keyBytes) {
+					ipStr = net.IPv4(keyBytes[12], keyBytes[13], keyBytes[14], keyBytes[15]).String()
 				} else {
-					ipStr = net.IP(key.U6Addr8[:]).String()
+					ipStr = net.IP(keyBytes).String()
 				}
 				snap.DeviceTraffics = append(snap.DeviceTraffics, DeviceTraffic{
 					IP:            ipStr,
@@ -348,32 +345,29 @@ func (c *ControlPlane) SnapshotRuntimeStats(windowSec int, maxPoints int) Runtim
 		}
 
 		if c.core.bpf.ConnTrafficMap != nil {
-			var key bpfTuplesKey
+			keyBytes := make([]byte, 37)
 			var val bpfTrafficStats
 			iter := c.core.bpf.ConnTrafficMap.Iterate()
-			for iter.Next(&key, &val) {
+			for iter.Next(&keyBytes, &val) {
 				var srcIpStr, dstIpStr string
-				if isIPv4ZeroPrefix(key.Sip.U6Addr8) {
-					srcIpStr = net.IPv4(key.Sip.U6Addr8[12], key.Sip.U6Addr8[13], key.Sip.U6Addr8[14], key.Sip.U6Addr8[15]).String()
+				if isIPv4ZeroPrefixSlice(keyBytes[0:16]) {
+					srcIpStr = net.IPv4(keyBytes[12], keyBytes[13], keyBytes[14], keyBytes[15]).String()
 				} else {
-					srcIpStr = net.IP(key.Sip.U6Addr8[:]).String()
+					srcIpStr = net.IP(keyBytes[0:16]).String()
 				}
-				if isIPv4ZeroPrefix(key.Dip.U6Addr8) {
-					dstIpStr = net.IPv4(key.Dip.U6Addr8[12], key.Dip.U6Addr8[13], key.Dip.U6Addr8[14], key.Dip.U6Addr8[15]).String()
+				if isIPv4ZeroPrefixSlice(keyBytes[16:32]) {
+					dstIpStr = net.IPv4(keyBytes[28], keyBytes[29], keyBytes[30], keyBytes[31]).String()
 				} else {
-					dstIpStr = net.IP(key.Dip.U6Addr8[:]).String()
+					dstIpStr = net.IP(keyBytes[16:32]).String()
 				}
-				// dport is network byte order __be16 in C, meaning it is big endian
-				var dportBytes [2]byte
-				binary.LittleEndian.PutUint16(dportBytes[:], key.Dport) // Host to bytes, assuming host is little endian. Wait, eBPF maps return bytes in host endianness, but the value was stored as __be16. Let's just use binary.BigEndian on the original bytes if it was __be16. But wait, if it was stored as __be16 and retrieved into a uint16 on little endian, the bytes are swapped.
-				// For safety, just use big endian swap if needed. Wait, in get_tuples: `tuples->five.dport = tcph->dest;` tcph->dest is __be16.
-				// In Go, key.Dport is uint16. A __be16 read into uint16 on LE machine will look like a swapped number. We can just use bits.ReverseBytes16 or binary.BigEndian.
-				port := (key.Dport >> 8) | (key.Dport << 8)
+				
+				sport := binary.BigEndian.Uint16(keyBytes[32:34])
+				dport := binary.BigEndian.Uint16(keyBytes[34:36])
 				
 				snap.ConnTraffics = append(snap.ConnTraffics, ConnTraffic{
 					SrcIP:         srcIpStr,
 					DstIP:         dstIpStr,
-					DstPort:       port,
+					DstPort:       dport,
 					UploadTotal:   val.UploadTotal,
 					DownloadTotal: val.DownloadTotal,
 				})
@@ -385,6 +379,18 @@ func (c *ControlPlane) SnapshotRuntimeStats(windowSec int, maxPoints int) Runtim
 }
 
 func isIPv4ZeroPrefix(ip [16]uint8) bool {
+	for i := 0; i < 12; i++ {
+		if ip[i] != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func isIPv4ZeroPrefixSlice(ip []byte) bool {
+	if len(ip) < 16 {
+		return false
+	}
 	for i := 0; i < 12; i++ {
 		if ip[i] != 0 {
 			return false
