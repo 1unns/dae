@@ -30,9 +30,11 @@ type RuntimeTrafficSample struct {
 
 // DeviceTraffic holds traffic stats for a single LAN device.
 type DeviceTraffic struct {
-	IP            string
-	UploadTotal   uint64
-	DownloadTotal uint64
+	IP                  string
+	ProxyUploadTotal    uint64
+	ProxyDownloadTotal  uint64
+	DirectUploadTotal   uint64
+	DirectDownloadTotal uint64
 }
 
 // ConnTraffic holds traffic stats for a single proxied connection.

@@ -2580,7 +2580,7 @@ func (c *ControlPlane) cleanupConnStateMapBeforeLocked(aggressiveCleanup bool, s
 			c.log.Debugf("cleanupConnStateMap: UDP batch delete error: %v", err)
 		}
 		if bpf.ConnTrafficMap != nil {
-			_, _ = BpfMapBatchDelete(bpf.ConnTrafficMap, udpKeysToDelete)
+			BpfMapBatchDelete(bpf.ConnTrafficMap, udpKeysToDelete)
 		}
 	}
 	udpStats.deleted = len(udpKeysToDelete)
@@ -2590,7 +2590,7 @@ func (c *ControlPlane) cleanupConnStateMapBeforeLocked(aggressiveCleanup bool, s
 			c.log.Debugf("cleanupConnStateMap: TCP batch delete error: %v", err)
 		}
 		if bpf.ConnTrafficMap != nil {
-			_, _ = BpfMapBatchDelete(bpf.ConnTrafficMap, tcpKeysToDelete)
+			BpfMapBatchDelete(bpf.ConnTrafficMap, tcpKeysToDelete)
 		}
 	}
 	tcpStats.deleted = len(tcpKeysToDelete)

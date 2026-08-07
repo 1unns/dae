@@ -37,9 +37,11 @@ func (c *controlPlaneCore) ReadTrafficMaps() (devices []DeviceTraffic, conns []C
 				ipStr = net.IP(keyBytes).String()
 			}
 			devices = append(devices, DeviceTraffic{
-				IP:            ipStr,
-				UploadTotal:   val.UploadTotal,
-				DownloadTotal: val.DownloadTotal,
+				IP:                  ipStr,
+				ProxyUploadTotal:    val.ProxyUploadTotal,
+				ProxyDownloadTotal:  val.ProxyDownloadTotal,
+				DirectUploadTotal:   val.DirectUploadTotal,
+				DirectDownloadTotal: val.DirectDownloadTotal,
 			})
 		}
 		if err := iter.Err(); err != nil {
@@ -70,8 +72,8 @@ func (c *controlPlaneCore) ReadTrafficMaps() (devices []DeviceTraffic, conns []C
 				SrcIP:         srcIpStr,
 				DstIP:         dstIpStr,
 				DstPort:       dport,
-				UploadTotal:   val.UploadTotal,
-				DownloadTotal: val.DownloadTotal,
+				UploadTotal:   val.ProxyUploadTotal + val.DirectUploadTotal,
+				DownloadTotal: val.ProxyDownloadTotal + val.DirectDownloadTotal,
 			})
 		}
 		if err := iter.Err(); err != nil {
@@ -79,6 +81,56 @@ func (c *controlPlaneCore) ReadTrafficMaps() (devices []DeviceTraffic, conns []C
 		}
 	}
 	return devices, conns
+}
+
+// ClearTrafficMaps clears the traffic statistics eBPF maps.
+func (c *controlPlaneCore) ClearTrafficMaps() error {
+	if c == nil {
+		return nil
+	}
+	bpf := c.bpf.Load()
+	if bpf == nil {
+		return nil
+	}
+
+	if bpf.DeviceTrafficMap != nil {
+		// Iterate and collect all keys
+		var keysToDelete [][]byte
+		keyBytes := make([]byte, 16)
+		var val bpfTrafficStats
+		iter := bpf.DeviceTrafficMap.Iterate()
+		for iter.Next(&keyBytes, &val) {
+			kb := make([]byte, 16)
+			copy(kb, keyBytes)
+			keysToDelete = append(keysToDelete, kb)
+		}
+		if len(keysToDelete) > 0 {
+			_, err := BpfMapBatchDelete(bpf.DeviceTrafficMap, keysToDelete)
+			if err != nil {
+				logrus.Errorf("ClearTrafficMaps: DeviceTrafficMap batch delete error: %v", err)
+			}
+		}
+	}
+
+	if bpf.ConnTrafficMap != nil {
+		var keysToDelete [][]byte
+		keyBytes := make([]byte, 37)
+		var val bpfTrafficStats
+		iter := bpf.ConnTrafficMap.Iterate()
+		for iter.Next(&keyBytes, &val) {
+			kb := make([]byte, 37)
+			copy(kb, keyBytes)
+			keysToDelete = append(keysToDelete, kb)
+		}
+		if len(keysToDelete) > 0 {
+			_, err := BpfMapBatchDelete(bpf.ConnTrafficMap, keysToDelete)
+			if err != nil {
+				logrus.Errorf("ClearTrafficMaps: ConnTrafficMap batch delete error: %v", err)
+			}
+		}
+	}
+
+	return nil
 }
 
 

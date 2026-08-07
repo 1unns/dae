@@ -146,8 +146,10 @@ type bpfConnState struct {
 
 type bpfTrafficStats struct {
 	_ structs.HostLayout
-	UploadTotal   uint64
-	DownloadTotal uint64
+	ProxyUploadTotal    uint64
+	ProxyDownloadTotal  uint64
+	DirectUploadTotal   uint64
+	DirectDownloadTotal uint64
 }
 
 type bpfDaeEvent struct {

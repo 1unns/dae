@@ -384,8 +384,10 @@ struct {
 } conn_state_map SEC(".maps");
 
 struct traffic_stats {
-	__u64 upload_total;
-	__u64 download_total;
+	__u64 proxy_upload_total;
+	__u64 proxy_download_total;
+	__u64 direct_upload_total;
+	__u64 direct_download_total;
 };
 
 struct {
@@ -1970,9 +1972,9 @@ static __always_inline bool is_new_tcp_connection(const struct tcphdr *tcph)
 	return tcph->syn && !tcph->ack;
 }
 
-static __always_inline void accumulate_traffic_stats(__u32 len, const union ip6 *device_ip, const struct tuples_key *conn_key, bool is_upload) {
+static __always_inline void accumulate_traffic_stats(__u32 len, const union ip6 *device_ip, const struct tuples_key *conn_key, bool is_upload, bool is_proxy) {
 	struct traffic_stats *stats;
-	struct traffic_stats initial_stats = {0, 0};
+	struct traffic_stats initial_stats = {0, 0, 0, 0};
 	
 	stats = bpf_map_lookup_elem(&device_traffic_map, device_ip);
 	if (!stats) {
@@ -1981,9 +1983,11 @@ static __always_inline void accumulate_traffic_stats(__u32 len, const union ip6 
 	}
 	if (stats) {
 		if (is_upload) {
-			__sync_fetch_and_add(&stats->upload_total, len);
+			if (is_proxy) __sync_fetch_and_add(&stats->proxy_upload_total, len);
+			else __sync_fetch_and_add(&stats->direct_upload_total, len);
 		} else {
-			__sync_fetch_and_add(&stats->download_total, len);
+			if (is_proxy) __sync_fetch_and_add(&stats->proxy_download_total, len);
+			else __sync_fetch_and_add(&stats->direct_download_total, len);
 		}
 	}
 
@@ -1994,9 +1998,11 @@ static __always_inline void accumulate_traffic_stats(__u32 len, const union ip6 
 	}
 	if (stats) {
 		if (is_upload) {
-			__sync_fetch_and_add(&stats->upload_total, len);
+			if (is_proxy) __sync_fetch_and_add(&stats->proxy_upload_total, len);
+			else __sync_fetch_and_add(&stats->direct_upload_total, len);
 		} else {
-			__sync_fetch_and_add(&stats->download_total, len);
+			if (is_proxy) __sync_fetch_and_add(&stats->proxy_download_total, len);
+			else __sync_fetch_and_add(&stats->direct_download_total, len);
 		}
 	}
 }
@@ -2043,7 +2049,8 @@ static __noinline int do_tproxy_lan_egress(struct __sk_buff *skb, __u32 link_h_l
 			      NULL, NULL, NULL, NULL,
 			      0, NULL, 0);
 		if (tcp_state) {
-			accumulate_traffic_stats(skb->len, &tuples.five.dip, &reversed_tuples_key, false);
+			bool is_proxy = tcp_state->meta.data.outbound != OUTBOUND_DIRECT;
+			accumulate_traffic_stats(skb->len, &tuples.five.dip, &reversed_tuples_key, false, is_proxy);
 		}
 	} else if (ctx->l4proto == IPPROTO_UDP) {
 		if (ctx->udph.source == bpf_htons(53) || ctx->udph.dest == bpf_htons(53))
@@ -2059,7 +2066,8 @@ static __noinline int do_tproxy_lan_egress(struct __sk_buff *skb, __u32 link_h_l
 			      NULL, NULL, NULL, NULL,
 			      0, NULL, 0);
 		if (udp_state) {
-			accumulate_traffic_stats(skb->len, &tuples.five.dip, &reversed_tuples_key, false);
+			bool is_proxy = udp_state->meta.data.outbound != OUTBOUND_DIRECT;
+			accumulate_traffic_stats(skb->len, &tuples.five.dip, &reversed_tuples_key, false, is_proxy);
 		}
 	}
 
@@ -2160,7 +2168,8 @@ static __noinline int do_tproxy_lan_ingress(struct __sk_buff *skb, __u32 link_h_
 		if (!tcp_state)
 			return TC_ACT_OK;
 
-		accumulate_traffic_stats(skb->len, &pkt->tuples.five.sip, &pkt->tuples.five, true);
+		bool is_proxy = tcp_state->meta.data.outbound != OUTBOUND_DIRECT;
+		accumulate_traffic_stats(skb->len, &pkt->tuples.five.sip, &pkt->tuples.five, true, is_proxy);
 
 		/* Compatibility restore for 030902f behavior and align with WAN
 		 * non-SYN session handling: reuse cached routing result for
@@ -2222,7 +2231,7 @@ static __noinline int do_tproxy_lan_ingress(struct __sk_buff *skb, __u32 link_h_
 
 				if (outbound == OUTBOUND_DIRECT) {
 					skb->mark = mark;
-					accumulate_traffic_stats(skb->len, &pkt->tuples.five.sip, &pkt->tuples.five, true);
+					accumulate_traffic_stats(skb->len, &pkt->tuples.five.sip, &pkt->tuples.five, true, false);
 					goto direct;
 				} else if (unlikely(outbound == OUTBOUND_BLOCK)) {
 					goto block;
@@ -2232,7 +2241,7 @@ static __noinline int do_tproxy_lan_ingress(struct __sk_buff *skb, __u32 link_h_
 							   pkt->tuples.five.dport))
 					goto block;
 
-				accumulate_traffic_stats(skb->len, &pkt->tuples.five.sip, &pkt->tuples.five, true);
+				accumulate_traffic_stats(skb->len, &pkt->tuples.five.sip, &pkt->tuples.five, true, true);
 				// Update conn state timestamp for this fast path packet
 				udp_state->last_seen_ns = bpf_ktime_get_ns();
 				return redirect_lan_packet_to_control_plane(
@@ -2383,7 +2392,7 @@ static __noinline int do_tproxy_lan_ingress(struct __sk_buff *skb, __u32 link_h_
 #if defined(__DEBUG_ROUTING) || defined(__PRINT_ROUTING_RESULT)
 		bpf_printk("GO OUTBOUND DIRECT");
 #endif
-		accumulate_traffic_stats(skb->len, &pkt->tuples.five.sip, &pkt->tuples.five, true);
+		accumulate_traffic_stats(skb->len, &pkt->tuples.five.sip, &pkt->tuples.five, true, false);
 		goto direct;
 	} else if (unlikely(outbound == OUTBOUND_BLOCK)) {
 #if defined(__DEBUG_ROUTING) || defined(__PRINT_ROUTING_RESULT)
@@ -2400,7 +2409,7 @@ static __noinline int do_tproxy_lan_ingress(struct __sk_buff *skb, __u32 link_h_
 				   pkt->tuples.five.dport))
 		goto block;
 
-	accumulate_traffic_stats(skb->len, &pkt->tuples.five.sip, &pkt->tuples.five, true);
+	accumulate_traffic_stats(skb->len, &pkt->tuples.five.sip, &pkt->tuples.five, true, true);
 	return redirect_lan_packet_to_control_plane(
 		skb, link_h_len, pkt,
 		build_routing_meta(outbound, mark, must, pkt->tuples.dscp).raw);
