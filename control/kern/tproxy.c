@@ -2036,13 +2036,15 @@ static __noinline int do_tproxy_lan_egress(struct __sk_buff *skb, __u32 link_h_l
 		get_tuples(skb, &tuples, &ctx->iph, &ctx->ipv6h,
 			   &ctx->tcph, &ctx->udph, ctx->l4proto);
 		copy_reversed_tuples(&tuples.five, &reversed_tuples_key);
-		accumulate_traffic_stats(skb->len, &tuples.five.dip, &reversed_tuples_key, false);
 		// Reverse-side TCP packets should refresh the forward conn-state and
 		// surface FIN/RST so the lifecycle does not remain ACTIVE until the
 		// janitor backstop expires.
-		mark_tcp_seen(&reversed_tuples_key, &ctx->tcph, true,
+		struct conn_state *tcp_state = mark_tcp_seen(&reversed_tuples_key, &ctx->tcph, true,
 			      NULL, NULL, NULL, NULL,
 			      0, NULL, 0);
+		if (tcp_state) {
+			accumulate_traffic_stats(skb->len, &tuples.five.dip, &reversed_tuples_key, false);
+		}
 	} else if (ctx->l4proto == IPPROTO_UDP) {
 		if (ctx->udph.source == bpf_htons(53) || ctx->udph.dest == bpf_htons(53))
 			return TC_ACT_PIPE;
@@ -2053,10 +2055,12 @@ static __noinline int do_tproxy_lan_egress(struct __sk_buff *skb, __u32 link_h_l
 		get_tuples(skb, &tuples, &ctx->iph, &ctx->ipv6h,
 			   &ctx->tcph, &ctx->udph, ctx->l4proto);
 		copy_reversed_tuples(&tuples.five, &reversed_tuples_key);
-		accumulate_traffic_stats(skb->len, &tuples.five.dip, &reversed_tuples_key, false);
-		mark_udp_seen(&reversed_tuples_key, true,
+		struct conn_state *udp_state = mark_udp_seen(&reversed_tuples_key, true,
 			      NULL, NULL, NULL, NULL,
 			      0, NULL, 0);
+		if (udp_state) {
+			accumulate_traffic_stats(skb->len, &tuples.five.dip, &reversed_tuples_key, false);
+		}
 	}
 
 	return TC_ACT_PIPE;
@@ -2130,10 +2134,6 @@ static __noinline int do_tproxy_lan_ingress(struct __sk_buff *skb, __u32 link_h_
 		return TC_ACT_OK;
 	}
 
-	if (pkt->l4proto == IPPROTO_TCP || pkt->l4proto == IPPROTO_UDP) {
-		accumulate_traffic_stats(skb->len, &pkt->tuples.five.sip, &pkt->tuples.five, true);
-	}
-
 	/*
    * ip rule add fwmark 0x8000000/0x8000000 table 2023
    * ip route add local default dev lo table 2023
@@ -2159,6 +2159,8 @@ static __noinline int do_tproxy_lan_ingress(struct __sk_buff *skb, __u32 link_h_
 		// passthrough behavior instead of recomputing routing.
 		if (!tcp_state)
 			return TC_ACT_OK;
+
+		accumulate_traffic_stats(skb->len, &pkt->tuples.five.sip, &pkt->tuples.five, true);
 
 		/* Compatibility restore for 030902f behavior and align with WAN
 		 * non-SYN session handling: reuse cached routing result for
@@ -2220,6 +2222,7 @@ static __noinline int do_tproxy_lan_ingress(struct __sk_buff *skb, __u32 link_h_
 
 				if (outbound == OUTBOUND_DIRECT) {
 					skb->mark = mark;
+					accumulate_traffic_stats(skb->len, &pkt->tuples.five.sip, &pkt->tuples.five, true);
 					goto direct;
 				} else if (unlikely(outbound == OUTBOUND_BLOCK)) {
 					goto block;
@@ -2229,6 +2232,7 @@ static __noinline int do_tproxy_lan_ingress(struct __sk_buff *skb, __u32 link_h_
 							   pkt->tuples.five.dport))
 					goto block;
 
+				accumulate_traffic_stats(skb->len, &pkt->tuples.five.sip, &pkt->tuples.five, true);
 				// Update conn state timestamp for this fast path packet
 				udp_state->last_seen_ns = bpf_ktime_get_ns();
 				return redirect_lan_packet_to_control_plane(
@@ -2379,6 +2383,7 @@ static __noinline int do_tproxy_lan_ingress(struct __sk_buff *skb, __u32 link_h_
 #if defined(__DEBUG_ROUTING) || defined(__PRINT_ROUTING_RESULT)
 		bpf_printk("GO OUTBOUND DIRECT");
 #endif
+		accumulate_traffic_stats(skb->len, &pkt->tuples.five.sip, &pkt->tuples.five, true);
 		goto direct;
 	} else if (unlikely(outbound == OUTBOUND_BLOCK)) {
 #if defined(__DEBUG_ROUTING) || defined(__PRINT_ROUTING_RESULT)
@@ -2394,6 +2399,8 @@ static __noinline int do_tproxy_lan_ingress(struct __sk_buff *skb, __u32 link_h_
 	if (!wan_outbound_is_alive(skb, outbound, pkt->l4proto,
 				   pkt->tuples.five.dport))
 		goto block;
+
+	accumulate_traffic_stats(skb->len, &pkt->tuples.five.sip, &pkt->tuples.five, true);
 	return redirect_lan_packet_to_control_plane(
 		skb, link_h_len, pkt,
 		build_routing_meta(outbound, mark, must, pkt->tuples.dscp).raw);
