@@ -154,6 +154,27 @@ struct tuples_key {
 	__u8 l4proto;
 };
 
+struct traffic_stats {
+	__u64 upload_total;
+	__u64 download_total;
+};
+
+// Device Traffic Map:
+struct {
+	__uint(type, BPF_MAP_TYPE_HASH);
+	__type(key, union ip6);
+	__type(value, struct traffic_stats);
+	__uint(max_entries, 65536);
+} device_traffic_map SEC(".maps");
+
+// Connection Traffic Map:
+struct {
+	__uint(type, BPF_MAP_TYPE_HASH);
+	__type(key, struct tuples_key);
+	__type(value, struct traffic_stats);
+	__uint(max_entries, 65536);
+} conn_traffic_map SEC(".maps");
+
 struct tuples {
 	struct tuples_key five;
 	__u8 dscp;
@@ -2112,6 +2133,37 @@ static __always_inline bool is_new_tcp_connection(const struct tcphdr *tcph)
 	return tcph->syn && !tcph->ack;
 }
 
+static __always_inline void accumulate_traffic_stats(__u32 len, const union ip6 *device_ip, const struct tuples_key *conn_key, bool is_upload) {
+	struct traffic_stats *stats;
+	struct traffic_stats initial_stats = {0, 0};
+	
+	stats = bpf_map_lookup_elem(&device_traffic_map, device_ip);
+	if (!stats) {
+		bpf_map_update_elem(&device_traffic_map, device_ip, &initial_stats, BPF_ANY);
+		stats = bpf_map_lookup_elem(&device_traffic_map, device_ip);
+	}
+	if (stats) {
+		if (is_upload) {
+			__sync_fetch_and_add(&stats->upload_total, len);
+		} else {
+			__sync_fetch_and_add(&stats->download_total, len);
+		}
+	}
+
+	stats = bpf_map_lookup_elem(&conn_traffic_map, conn_key);
+	if (!stats) {
+		bpf_map_update_elem(&conn_traffic_map, conn_key, &initial_stats, BPF_ANY);
+		stats = bpf_map_lookup_elem(&conn_traffic_map, conn_key);
+	}
+	if (stats) {
+		if (is_upload) {
+			__sync_fetch_and_add(&stats->upload_total, len);
+		} else {
+			__sync_fetch_and_add(&stats->download_total, len);
+		}
+	}
+}
+
 // Unified non-syn TCP handling entry for WAN egress.
 // Scheme3: Load routing from embedded conn state.
 // Keep main-equivalent behavior:
@@ -2151,6 +2203,8 @@ static __noinline int do_tproxy_lan_egress(struct __sk_buff *skb, u32 link_h_len
 		get_tuples(skb, &tuples, &ctx->iph, &ctx->ipv6h,
 			   &ctx->tcph, &ctx->udph, ctx->l4proto);
 		copy_reversed_tuples(&tuples.five, &reversed_tuples_key);
+		accumulate_traffic_stats(skb->len, &tuples.five.dip, &reversed_tuples_key, false);
+
 		// Reverse-side TCP packets should refresh the forward conn-state and
 		// surface FIN/RST so the lifecycle does not remain ACTIVE until the
 		// janitor backstop expires.
@@ -2169,6 +2223,8 @@ static __noinline int do_tproxy_lan_egress(struct __sk_buff *skb, u32 link_h_len
 		get_tuples(skb, &tuples, &ctx->iph, &ctx->ipv6h,
 			   &ctx->tcph, &ctx->udph, ctx->l4proto);
 		copy_reversed_tuples(&tuples.five, &reversed_tuples_key);
+		accumulate_traffic_stats(skb->len, &tuples.five.dip, &reversed_tuples_key, false);
+
 		// Robustness: If conntrack map is full, gracefully degrade by continuing
 		// without state tracking. This is acceptable as the packet will be processed
 		// normally; we just lose connection tracking optimization.
@@ -2252,6 +2308,10 @@ static __noinline int do_tproxy_lan_ingress(struct __sk_buff *skb, u32 link_h_le
 			return TC_ACT_SHOT;  // Drop malformed/suspicious packets
 		}
 		return TC_ACT_OK;  // Pass through unsupported protocols
+	}
+
+	if (pkt->l4proto == IPPROTO_TCP || pkt->l4proto == IPPROTO_UDP) {
+		accumulate_traffic_stats(skb->len, &pkt->tuples.five.sip, &pkt->tuples.five, true);
 	}
 
 	/*

@@ -166,6 +166,12 @@ type bpfTcpConnState struct {
 	Pid   uint32
 }
 
+type bpfTrafficStats struct {
+	_             structs.HostLayout
+	UploadTotal   uint64
+	DownloadTotal uint64
+}
+
 type bpfDaeEvent struct {
 	_         structs.HostLayout
 	Timestamp uint64
@@ -234,6 +240,8 @@ type bpfMapSpecs struct {
 	UdpConnStateMap         *ebpf.MapSpec `ebpf:"udp_conn_state_map"`
 	UnusedLpmType           *ebpf.MapSpec `ebpf:"unused_lpm_type"`
 	WanEgressScratchMap     *ebpf.MapSpec `ebpf:"wan_egress_scratch_map"`
+	DeviceTrafficMap        *ebpf.MapSpec `ebpf:"device_traffic_map"`
+	ConnTrafficMap          *ebpf.MapSpec `ebpf:"conn_traffic_map"`
 }
 
 type bpfVariableSpecs struct {
@@ -270,6 +278,8 @@ type bpfMaps struct {
 	UdpConnStateMap         *ebpf.Map `ebpf:"udp_conn_state_map"`
 	UnusedLpmType           *ebpf.Map `ebpf:"unused_lpm_type"`
 	WanEgressScratchMap     *ebpf.Map `ebpf:"wan_egress_scratch_map"`
+	DeviceTrafficMap        *ebpf.Map `ebpf:"device_traffic_map"`
+	ConnTrafficMap          *ebpf.Map `ebpf:"conn_traffic_map"`
 }
 
 func (m *bpfMaps) Close() error {

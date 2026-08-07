@@ -7,7 +7,9 @@ package control
 
 import (
 	"context"
+	"encoding/binary"
 	"math"
+	"net"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -28,6 +30,22 @@ type RuntimeTrafficSample struct {
 	DownloadRate uint64
 }
 
+// DeviceTraffic contains traffic stats for a single device IP.
+type DeviceTraffic struct {
+	IP            string
+	UploadTotal   uint64
+	DownloadTotal uint64
+}
+
+// ConnTraffic contains traffic stats for a single connection.
+type ConnTraffic struct {
+	SrcIP         string
+	DstIP         string
+	DstPort       uint16
+	UploadTotal   uint64
+	DownloadTotal uint64
+}
+
 // RuntimeStatsSnapshot preserves the traffic-latency branch's exported API.
 type RuntimeStatsSnapshot struct {
 	UpdatedAt         time.Time
@@ -38,6 +56,8 @@ type RuntimeStatsSnapshot struct {
 	ActiveConnections int
 	UDPSessions       int
 	Samples           []RuntimeTrafficSample
+	DeviceTraffics    []DeviceTraffic
+	ConnTraffics      []ConnTraffic
 }
 
 type runtimeBucket struct {
@@ -302,7 +322,75 @@ func (c *ControlPlane) SnapshotRuntimeStats(windowSec int, maxPoints int) Runtim
 		activeConnections = c.ActiveTCPConnections()
 		udpSessions = DefaultUdpEndpointPool.Len()
 	}
-	return c.runtimeStatsStore().snapshot(activeConnections, udpSessions, windowSec, maxPoints, time.Now())
+	snap := c.runtimeStatsStore().snapshot(activeConnections, udpSessions, windowSec, maxPoints, time.Now())
+
+	if c != nil && c.core != nil && c.core.bpf != nil {
+		if c.core.bpf.DeviceTrafficMap != nil {
+			var key struct {
+				_       [0]uint8
+				U6Addr8 [16]uint8
+			}
+			var val bpfTrafficStats
+			iter := c.core.bpf.DeviceTrafficMap.Iterate()
+			for iter.Next(&key, &val) {
+				var ipStr string
+				if isIPv4ZeroPrefix(key.U6Addr8) {
+					ipStr = net.IPv4(key.U6Addr8[12], key.U6Addr8[13], key.U6Addr8[14], key.U6Addr8[15]).String()
+				} else {
+					ipStr = net.IP(key.U6Addr8[:]).String()
+				}
+				snap.DeviceTraffics = append(snap.DeviceTraffics, DeviceTraffic{
+					IP:            ipStr,
+					UploadTotal:   val.UploadTotal,
+					DownloadTotal: val.DownloadTotal,
+				})
+			}
+		}
+
+		if c.core.bpf.ConnTrafficMap != nil {
+			var key bpfTuplesKey
+			var val bpfTrafficStats
+			iter := c.core.bpf.ConnTrafficMap.Iterate()
+			for iter.Next(&key, &val) {
+				var srcIpStr, dstIpStr string
+				if isIPv4ZeroPrefix(key.Sip.U6Addr8) {
+					srcIpStr = net.IPv4(key.Sip.U6Addr8[12], key.Sip.U6Addr8[13], key.Sip.U6Addr8[14], key.Sip.U6Addr8[15]).String()
+				} else {
+					srcIpStr = net.IP(key.Sip.U6Addr8[:]).String()
+				}
+				if isIPv4ZeroPrefix(key.Dip.U6Addr8) {
+					dstIpStr = net.IPv4(key.Dip.U6Addr8[12], key.Dip.U6Addr8[13], key.Dip.U6Addr8[14], key.Dip.U6Addr8[15]).String()
+				} else {
+					dstIpStr = net.IP(key.Dip.U6Addr8[:]).String()
+				}
+				// dport is network byte order __be16 in C, meaning it is big endian
+				var dportBytes [2]byte
+				binary.LittleEndian.PutUint16(dportBytes[:], key.Dport) // Host to bytes, assuming host is little endian. Wait, eBPF maps return bytes in host endianness, but the value was stored as __be16. Let's just use binary.BigEndian on the original bytes if it was __be16. But wait, if it was stored as __be16 and retrieved into a uint16 on little endian, the bytes are swapped.
+				// For safety, just use big endian swap if needed. Wait, in get_tuples: `tuples->five.dport = tcph->dest;` tcph->dest is __be16.
+				// In Go, key.Dport is uint16. A __be16 read into uint16 on LE machine will look like a swapped number. We can just use bits.ReverseBytes16 or binary.BigEndian.
+				port := (key.Dport >> 8) | (key.Dport << 8)
+				
+				snap.ConnTraffics = append(snap.ConnTraffics, ConnTraffic{
+					SrcIP:         srcIpStr,
+					DstIP:         dstIpStr,
+					DstPort:       port,
+					UploadTotal:   val.UploadTotal,
+					DownloadTotal: val.DownloadTotal,
+				})
+			}
+		}
+	}
+
+	return snap
+}
+
+func isIPv4ZeroPrefix(ip [16]uint8) bool {
+	for i := 0; i < 12; i++ {
+		if ip[i] != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func bucketizeRuntimeSamples(samples []RuntimeTrafficSample, maxPoints int) []RuntimeTrafficSample {
