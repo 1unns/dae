@@ -401,7 +401,7 @@ struct {
 
 struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
-	__uint(max_entries, 1024);
+	__uint(max_entries, 16384);
 	__type(key, union ip6);
 	__type(value, struct traffic_stats);
 	__uint(pinning, LIBBPF_PIN_BY_NAME);
