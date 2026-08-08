@@ -208,6 +208,15 @@ func isValidDeviceIP(ip net.IP, subnets []*net.IPNet) bool {
 	if ip.String() == "255.255.255.255" {
 		return false
 	}
+	// Allow all private IPs (RFC 1918 + IPv6 ULA) for users with VLANs or routed subnets
+	if ip.IsPrivate() {
+		return true
+	}
+	// Allow CGNAT (100.64.0.0/10) often used by VPNs like Tailscale
+	if ip4 := ip.To4(); ip4 != nil && ip4[0] == 100 && (ip4[1]&192) == 64 {
+		return true
+	}
+	// Fallback to directly attached subnets
 	for _, subnet := range subnets {
 		if subnet.Contains(ip) {
 			return true
