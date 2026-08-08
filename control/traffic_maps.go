@@ -28,6 +28,7 @@ func (c *controlPlaneCore) ReadTrafficMaps() (devices []DeviceTraffic, conns []C
 	if bpf.DeviceTrafficMap != nil {
 		var key [16]byte
 		var val bpfTrafficStats
+		var keysToDelete [][16]byte
 		iter := bpf.DeviceTrafficMap.Iterate()
 		count := 0
 		for iter.Next(&key, &val) {
@@ -42,6 +43,7 @@ func (c *controlPlaneCore) ReadTrafficMaps() (devices []DeviceTraffic, conns []C
 			ipStr = ip.String()
 			
 			if !isValidDeviceIP(ip, localSubnets) {
+				keysToDelete = append(keysToDelete, key)
 				continue
 			}
 
@@ -55,6 +57,12 @@ func (c *controlPlaneCore) ReadTrafficMaps() (devices []DeviceTraffic, conns []C
 		}
 		if err := iter.Err(); err != nil {
 			logrus.Errorf("DeviceTrafficMap Iterate error: %v", err)
+		}
+		if len(keysToDelete) > 0 {
+			_, err := BpfMapBatchDelete(bpf.DeviceTrafficMap, keysToDelete)
+			if err != nil {
+				logrus.Errorf("ReadTrafficMaps: DeviceTrafficMap batch delete noise error: %v", err)
+			}
 		}
 	}
 
