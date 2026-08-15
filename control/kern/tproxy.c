@@ -2009,8 +2009,10 @@ static __always_inline void accumulate_traffic_stats(__u32 len, const union ip6 
 
 	stats = bpf_map_lookup_elem(&conn_traffic_map, conn_key);
 	if (!stats) {
-		bpf_map_update_elem(&conn_traffic_map, conn_key, &initial_stats, BPF_ANY);
-		stats = bpf_map_lookup_elem(&conn_traffic_map, conn_key);
+		if (bpf_map_lookup_elem(&conn_state_map, conn_key)) {
+			bpf_map_update_elem(&conn_traffic_map, conn_key, &initial_stats, BPF_ANY);
+			stats = bpf_map_lookup_elem(&conn_traffic_map, conn_key);
+		}
 	}
 	if (stats) {
 		if (is_upload) {
