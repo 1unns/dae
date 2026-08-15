@@ -117,13 +117,17 @@ func (c *controlPlaneCore) ReadTrafficMaps() (devices []DeviceTraffic, conns []C
 			binary.LittleEndian.PutUint16(sportBytes, key.Sport)
 			sport := binary.BigEndian.Uint16(sportBytes)
 
+			if val.ProxyUploadTotal == 0 && val.ProxyDownloadTotal == 0 {
+				continue
+			}
+
 			conns = append(conns, ConnTraffic{
 				SrcIP:         srcIpStr,
 				DstIP:         dstIpStr,
 				SrcPort:       sport,
 				DstPort:       dport,
-				UploadTotal:   val.ProxyUploadTotal + val.DirectUploadTotal,
-				DownloadTotal: val.ProxyDownloadTotal + val.DirectDownloadTotal,
+				UploadTotal:   val.ProxyUploadTotal,
+				DownloadTotal: val.ProxyDownloadTotal,
 			})
 		}
 		if err := iter.Err(); err != nil {
