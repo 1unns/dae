@@ -216,18 +216,27 @@ func BpfMapBatchDelete(m *ebpf.Map, keys interface{}) (n int, err error) {
 	initBatchDeleteFeatureFlags()
 
 	if !SimulateBatchDelete {
-		// Use kernel BatchDelete API - much faster for large batches
-		n, err = m.BatchDelete(keys, &ebpf.BatchOptions{})
-		// BatchDelete may return ErrKeyNotExist for some keys - that's ok
-		if err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
-			return n, fmt.Errorf("batch delete map %s: %w", m.String(), err)
-		}
-		// Count successful deletions even with ErrKeyNotExist
 		vKeys := reflect.ValueOf(keys)
-		if vKeys.Kind() == reflect.Slice {
-			return vKeys.Len(), nil
+		if vKeys.Kind() != reflect.Slice {
+			return 0, fmt.Errorf("keys must be slice")
 		}
-		return n, nil
+		total := vKeys.Len()
+		deleted := 0
+		for deleted < total {
+			sliceToProcess := vKeys.Slice(deleted, total).Interface()
+			batchN, err := m.BatchDelete(sliceToProcess, &ebpf.BatchOptions{})
+			deleted += batchN
+			if err != nil {
+				if errors.Is(err, ebpf.ErrKeyNotExist) {
+					// Kernel batch delete aborts on the first missing key.
+					// Skip the missing key and resume with the rest.
+					deleted++
+				} else {
+					return deleted, fmt.Errorf("batch delete map %s: %w", m.String(), err)
+				}
+			}
+		}
+		return total, nil
 	}
 
 	// Fallback: simulate batch delete with individual Delete calls
