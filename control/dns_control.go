@@ -173,7 +173,7 @@ func normalizeDnsRuntimeBehavior(option *DnsControllerOption) (qtypePrefer uint1
 	optimisticCacheTtl = option.OptimisticCacheTtl
 	maxCacheSize = option.MaxCacheSize
 	if optimisticCacheTtl == 0 && maxCacheSize == 0 {
-		optimisticCacheTtl = 60
+		optimisticCacheTtl = 86400
 	}
 	return qtypePrefer, option.OptimisticCache, optimisticCacheTtl, maxCacheSize, nil
 }
