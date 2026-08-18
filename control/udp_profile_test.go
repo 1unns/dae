@@ -22,8 +22,8 @@ func TestNewDnsLifecycleProfile_ProxyBackedUsesShortIdleAndTimeoutDiscard(t *tes
 	if !profile.DiscardPooledConnOnTimeout {
 		t.Fatal("proxy-backed DNS profile should discard pooled conn on timeout")
 	}
-	if profile.PooledConnIdleTTL != dnsUdpProxyPoolMaxIdleTime {
-		t.Fatalf("PooledConnIdleTTL = %v, want %v", profile.PooledConnIdleTTL, dnsUdpProxyPoolMaxIdleTime)
+	if profile.PooledConnIdleTTL != 5*time.Minute {
+		t.Fatalf("PooledConnIdleTTL = %v, want 5m", profile.PooledConnIdleTTL)
 	}
 }
 
