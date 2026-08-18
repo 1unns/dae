@@ -817,8 +817,7 @@ const (
 	dnsUdpPoolMaxActive = 64
 	// Proxy-backed UDP DNS sockets go stale more easily because they sit behind an
 	// upstream relay session rather than a raw UDP socket.
-	// Increased from 10s to 5m to prevent cold-start DNS timeouts when users open webpages after brief idle periods.
-	dnsUdpProxyPoolMaxIdleTime  = 5 * time.Minute
+	dnsUdpProxyPoolMaxIdleTime  = 10 * time.Second
 	dnsUdpDirectPoolMaxIdleTime = 30 * time.Second
 )
 

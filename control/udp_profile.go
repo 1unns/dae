@@ -36,7 +36,7 @@ func newDnsLifecycleProfile(d *componentdialer.Dialer) UdpLifecycleProfile {
 		DiscardPooledConnOnTimeout: false,
 	}
 	if isProxyBackedDialer(d) {
-		profile.PooledConnIdleTTL = dnsUdpProxyPoolMaxIdleTime
+		profile.PooledConnIdleTTL = 10 * time.Second
 		profile.DiscardPooledConnOnTimeout = true
 	}
 	return profile
