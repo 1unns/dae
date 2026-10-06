@@ -19,6 +19,10 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+func NewFromLink(gOption *GlobalOption, iOption InstanceOption, link string, subscriptionTag string) (*Dialer, error) {
+	return NewFromLinkContext(context.Background(), gOption, iOption, link, subscriptionTag)
+}
+
 func NewFromLinkContext(ctx context.Context, gOption *GlobalOption, iOption InstanceOption, link string, subscriptionTag string) (*Dialer, error) {
 	// Each dialer owns an independent sticky-IP cache. A shared cache keyed by
 	// proxy address would be thrashed by per-dialer health-check cycles when
