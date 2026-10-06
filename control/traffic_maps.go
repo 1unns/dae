@@ -69,6 +69,7 @@ func (c *controlPlaneCore) ReadTrafficMaps() (devices []DeviceTraffic, conns []C
 	if bpf.ConnTrafficMap != nil {
 		var key bpfTuplesKey
 		var val bpfTrafficStats
+		var deadConnKeys []bpfTuplesKey
 		iter := bpf.ConnTrafficMap.Iterate()
 		count := 0
 		for iter.Next(&key, &val) {
@@ -91,6 +92,7 @@ func (c *controlPlaneCore) ReadTrafficMaps() (devices []DeviceTraffic, conns []C
 			dstIpStr = dstIP.String()
 
 			if !isValidConn(srcIP, dstIP, localIPs, localSubnets) {
+				deadConnKeys = append(deadConnKeys, key)
 				continue
 			}
 
@@ -99,11 +101,13 @@ func (c *controlPlaneCore) ReadTrafficMaps() (devices []DeviceTraffic, conns []C
 				err := bpf.ConnStateMap.Lookup(&key, &state)
 				if err != nil {
 					// Connection state no longer exists, it is closed
+					deadConnKeys = append(deadConnKeys, key)
 					continue
 				}
 				// State 0 is ESTABLISHED (for TCP). >0 are closing/closed states.
 				// UDP always has State 0.
 				if state.State > 0 {
+					deadConnKeys = append(deadConnKeys, key)
 					continue
 				}
 			}
@@ -128,6 +132,12 @@ func (c *controlPlaneCore) ReadTrafficMaps() (devices []DeviceTraffic, conns []C
 		}
 		if err := iter.Err(); err != nil {
 			logrus.Errorf("ConnTrafficMap Iterate error: %v", err)
+		}
+		if len(deadConnKeys) > 0 {
+			_, err := BpfMapBatchDelete(bpf.ConnTrafficMap, deadConnKeys)
+			if err != nil {
+				logrus.Debugf("ReadTrafficMaps: ConnTrafficMap batch delete closed conns error: %v", err)
+			}
 		}
 	}
 	return devices, conns
