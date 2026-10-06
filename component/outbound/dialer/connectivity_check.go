@@ -1346,6 +1346,12 @@ func (d *Dialer) ReportAvailableTraffic(typ *NetworkType) {
 	}
 }
 
+// Check performs a basic connectivity check.
+// Backward compatibility wrapper for check(opts, false, nil).
+func (d *Dialer) Check(opts *CheckOption) (ok bool, err error) {
+	return d.check(opts, false, nil)
+}
+
 // check performs a basic connectivity check for one dialer.
 func (d *Dialer) check(opts *CheckOption, isResuscitation bool, cycle *cycleResult) (ok bool, err error) {
 	const maxAttempts = 2
