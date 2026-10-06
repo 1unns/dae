@@ -190,13 +190,20 @@ func IsIgnorableConnectionError(err error) bool {
 // IsIgnorableTCPRelayError checks if the error is an ignorable connection error
 // that occurs during normal TCP relay operation.
 // This function is on the hot path and optimized for minimal overhead.
+//
+// Rationale for io.ErrClosedPipe:
+// In user-space TCP bidirectional relays (e.g., io.Copy / splice / pipe relays between
+// client and proxy dialers), when one endpoint initiates connection termination or closes
+// its side of the pipe after a response is complete, operations on the closed half return
+// io.ErrClosedPipe. Treating io.ErrClosedPipe alongside io.EOF avoids harmless error logging
+// during ordinary connection teardown.
 func IsIgnorableTCPRelayError(err error) bool {
 	if err == nil {
 		return false
 	}
 
 	// Fast path: sentinel errors (pointer comparison only)
-	if errors.Is(err, io.EOF) || errors.Is(err, os.ErrDeadlineExceeded) {
+	if errors.Is(err, io.EOF) || errors.Is(err, os.ErrDeadlineExceeded) || errors.Is(err, io.ErrClosedPipe) {
 		return true
 	}
 

@@ -327,6 +327,7 @@ func (c *ControlPlane) cleanupConnStateMapBeforeLocked(aggressiveCleanup bool, s
 	scratch := c.connStateJanitorScratch()
 	udpKeysToDelete := takeJanitorDeleteScratch(scratch.udpDelete)
 	tcpKeysToDelete := takeJanitorDeleteScratch(scratch.tcpDelete)
+	var tcpClosedConnTrafficKeys []bpfTuplesKey
 	keysOut := ensureJanitorLookupScratch(scratch.udpKeys)
 	valuesOut := ensureJanitorLookupScratch(scratch.udpValues)
 	defer func() {
@@ -410,6 +411,8 @@ func (c *ControlPlane) cleanupConnStateMapBeforeLocked(aggressiveCleanup bool, s
 					}
 					if shouldDelete {
 						tcpKeysToDelete = append(tcpKeysToDelete, key)
+					} else if value.State > 0 {
+						tcpClosedConnTrafficKeys = append(tcpClosedConnTrafficKeys, key)
 					}
 				}
 			}
@@ -458,6 +461,9 @@ func (c *ControlPlane) cleanupConnStateMapBeforeLocked(aggressiveCleanup bool, s
 		if _, err := BpfMapBatchDelete(bpf.ConnStateMap, keys); err != nil {
 			countConnStateJanitorDeleteError(label, err)
 		}
+		if bpf.ConnTrafficMap != nil {
+			BpfMapBatchDelete(bpf.ConnTrafficMap, keys)
+		}
 	}
 	if manager != nil && len(udpKeysToDelete) > 0 {
 		manager.udpStateMu.RLock()
@@ -494,6 +500,10 @@ func (c *ControlPlane) cleanupConnStateMapBeforeLocked(aggressiveCleanup bool, s
 		deleteKeys(tcpKeysToDelete, "TCP")
 	}
 	tcpStats.deleted = len(tcpKeysToDelete)
+
+	if bpf.ConnTrafficMap != nil && len(tcpClosedConnTrafficKeys) > 0 {
+		BpfMapBatchDelete(bpf.ConnTrafficMap, tcpClosedConnTrafficKeys)
+	}
 
 	if len(udpKeysToDelete) > 0 {
 		if aggressiveCleanup {

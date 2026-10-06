@@ -198,6 +198,7 @@ type controlPlaneCore struct {
 	// same lock so map rollback and slot cleanup cannot interleave.
 	lpmTrieIndices []uint32
 	bpfOwned       bool
+	trafficCache   trafficCache
 }
 
 func newControlPlaneCore(log *logrus.Logger,

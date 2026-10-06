@@ -27,6 +27,29 @@ type RuntimeTrafficSample struct {
 	DownloadRate uint64
 }
 
+// DeviceTraffic holds traffic stats for a single LAN device.
+type DeviceTraffic struct {
+	IP                  string
+	ProxyUploadTotal    uint64
+	ProxyDownloadTotal  uint64
+	DirectUploadTotal   uint64
+	DirectDownloadTotal uint64
+}
+
+// ConnTraffic holds traffic stats for a single connection.
+type ConnTraffic struct {
+	SrcIP               string
+	DstIP               string
+	SrcPort             uint16
+	DstPort             uint16
+	ProxyUploadTotal    uint64
+	ProxyDownloadTotal  uint64
+	DirectUploadTotal   uint64
+	DirectDownloadTotal uint64
+	UploadTotal         uint64
+	DownloadTotal       uint64
+}
+
 // RuntimeStatsSnapshot preserves the traffic-latency branch's exported API.
 type RuntimeStatsSnapshot struct {
 	UpdatedAt         time.Time
@@ -37,6 +60,8 @@ type RuntimeStatsSnapshot struct {
 	ActiveConnections int
 	UDPSessions       int
 	Samples           []RuntimeTrafficSample
+	DeviceTraffics    []DeviceTraffic
+	ConnTraffics      []ConnTraffic
 }
 
 type runtimeBucket struct {
@@ -298,7 +323,15 @@ func (c *ControlPlane) SnapshotRuntimeStats(windowSec int, maxPoints int) Runtim
 		activeConnections = c.ActiveTCPConnections()
 		udpSessions = DefaultUdpEndpointPool.Len()
 	}
-	return c.runtimeStatsStore().snapshot(activeConnections, udpSessions, windowSec, maxPoints, time.Now())
+	snap := c.runtimeStatsStore().snapshot(activeConnections, udpSessions, windowSec, maxPoints, time.Now())
+	// Device/connection traffic from eBPF maps is populated by the controlPlaneCore
+	// via ReadTrafficMaps(), called separately to keep generated-type references out of this file.
+	if c != nil && c.core != nil {
+		devices, conns := c.core.ReadTrafficMaps()
+		snap.DeviceTraffics = devices
+		snap.ConnTraffics = conns
+	}
+	return snap
 }
 
 func bucketizeRuntimeSamples(samples []RuntimeTrafficSample, maxPoints int) []RuntimeTrafficSample {
