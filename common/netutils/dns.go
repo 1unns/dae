@@ -23,6 +23,7 @@ import (
 )
 
 var ErrBadDnsAns = fmt.Errorf("bad dns answer")
+var FallbackDns netip.AddrPort
 
 const maxDNSMessageSize = 65535
 

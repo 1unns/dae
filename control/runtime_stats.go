@@ -334,6 +334,20 @@ func (c *ControlPlane) SnapshotRuntimeStats(windowSec int, maxPoints int) Runtim
 	return snap
 }
 
+// Deprecated: prefer (*ControlPlane).SnapshotRuntimeStats for per-instance stats.
+// SnapshotRuntimeStats returns the current runtime traffic snapshot.
+func SnapshotRuntimeStats(activeConnections int, udpSessions int, windowSec int, maxPoints int) RuntimeStatsSnapshot {
+	now := time.Now()
+	if store := currentRuntimeStatsStore(); store != nil {
+		return store.snapshot(activeConnections, udpSessions, windowSec, maxPoints, now)
+	}
+	return RuntimeStatsSnapshot{
+		UpdatedAt:         now,
+		ActiveConnections: activeConnections,
+		UDPSessions:       udpSessions,
+	}
+}
+
 func bucketizeRuntimeSamples(samples []RuntimeTrafficSample, maxPoints int) []RuntimeTrafficSample {
 	if len(samples) <= maxPoints {
 		return samples

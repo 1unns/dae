@@ -300,6 +300,33 @@ func isIPLikeDomain(domain string) bool {
 	return false
 }
 
+// NewControlPlane provides backward compatibility for callers expecting the legacy constructor.
+func NewControlPlane(
+	log *logrus.Logger,
+	_bpf any,
+	dnsCache map[string]*DnsCache,
+	tagToNodeList map[string][]string,
+	groups []config.Group,
+	routingA *config.Routing,
+	global *config.Global,
+	dnsConfig *config.Dns,
+	externGeoDataDirs []string,
+) (plane *ControlPlane, err error) {
+	return NewControlPlaneWithContextOptions(
+		context.Background(),
+		log,
+		_bpf,
+		dnsCache,
+		tagToNodeList,
+		groups,
+		routingA,
+		global,
+		dnsConfig,
+		externGeoDataDirs,
+		ControlPlaneBuildOptions{},
+	)
+}
+
 // NewControlPlaneWithContextOptions is the single control-plane constructor;
 // the previous New{,Reload,Prepared,PreparedReload}ControlPlaneWithContext
 // wrapper family collapsed into this options-based entry point.

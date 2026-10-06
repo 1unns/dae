@@ -341,6 +341,10 @@ func (p *UdpEndpointPool) Len() int {
 	return total
 }
 
+func (p *UdpEndpointPool) Count() int {
+	return p.Len()
+}
+
 func normalizeUdpEndpointPoolNetworkType(networkType dialer.NetworkType) dialer.NetworkType {
 	if networkType.L4Proto == "" {
 		networkType.L4Proto = consts.L4ProtoStr_UDP
