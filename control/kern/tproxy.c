@@ -2802,41 +2802,73 @@ static __always_inline bool is_multicast_or_broadcast(const union ip6 *ip) {
 	return false;
 }
 
+static __always_inline bool is_private_or_local_ip(const union ip6 *ip) {
+	if (ip->u6_addr32[0] == 0 && ip->u6_addr32[1] == 0 && ip->u6_addr32[2] == bpf_htonl(0x0000ffff)) {
+		__u32 v4 = bpf_ntohl(ip->u6_addr32[3]);
+		if ((v4 & 0xff000000) == 0x0a000000) return true; // 10.0.0.0/8
+		if ((v4 & 0xfff00000) == 0xac100000) return true; // 172.16.0.0/12
+		if ((v4 & 0xffff0000) == 0xc0a80000) return true; // 192.168.0.0/16
+		if ((v4 & 0xff000000) == 0x7f000000) return true; // 127.0.0.0/8
+		if ((v4 & 0xffff0000) == 0xa9fe0000) return true; // 169.254.0.0/16
+		if (v4 == 0) return true;                          // 0.0.0.0
+	} else {
+		// IPv6 loopback ::1
+		if (ip->u6_addr32[0] == 0 && ip->u6_addr32[1] == 0 && ip->u6_addr32[2] == 0 && ip->u6_addr32[3] == bpf_htonl(1)) return true;
+		// IPv6 unique local fc00::/7
+		if ((ip->u6_addr8[0] & 0xfe) == 0xfc) return true;
+		// IPv6 link-local fe80::/10
+		if (ip->u6_addr8[0] == 0xfe && (ip->u6_addr8[1] & 0xc0) == 0x80) return true;
+	}
+	return false;
+}
+
 static __always_inline void accumulate_traffic_stats(__u32 len, const union ip6 *device_ip, const struct tuples_key *conn_key, bool is_upload, bool is_proxy) {
 	if (is_multicast_or_broadcast(&conn_key->dip) || is_multicast_or_broadcast(&conn_key->sip)) {
+		return;
+	}
+
+	// For direct traffic, ignore LAN-to-router (e.g. WebUI, SSH, DNS) and LAN-to-LAN traffic.
+	// Only public Internet direct traffic should be tracked as direct traffic.
+	if (!is_proxy && is_private_or_local_ip(&conn_key->dip)) {
 		return;
 	}
 
 	struct traffic_stats *stats;
 	struct traffic_stats initial_stats = {0, 0, 0, 0};
 	
-	stats = bpf_map_lookup_elem(&device_traffic_map, device_ip);
-	if (!stats) {
-		bpf_map_update_elem(&device_traffic_map, device_ip, &initial_stats, BPF_NOEXIST);
+	// Only track valid local/private device IPs in device_traffic_map to prevent WAN IP exhaustion.
+	if (is_private_or_local_ip(device_ip)) {
 		stats = bpf_map_lookup_elem(&device_traffic_map, device_ip);
-	}
-	if (stats) {
-		if (is_upload) {
-			if (is_proxy) __sync_fetch_and_add(&stats->proxy_upload_total, len);
-			else __sync_fetch_and_add(&stats->direct_upload_total, len);
-		} else {
-			if (is_proxy) __sync_fetch_and_add(&stats->proxy_download_total, len);
-			else __sync_fetch_and_add(&stats->direct_download_total, len);
+		if (!stats) {
+			bpf_map_update_elem(&device_traffic_map, device_ip, &initial_stats, BPF_NOEXIST);
+			stats = bpf_map_lookup_elem(&device_traffic_map, device_ip);
+		}
+		if (stats) {
+			if (is_upload) {
+				if (is_proxy) __sync_fetch_and_add(&stats->proxy_upload_total, len);
+				else __sync_fetch_and_add(&stats->direct_upload_total, len);
+			} else {
+				if (is_proxy) __sync_fetch_and_add(&stats->proxy_download_total, len);
+				else __sync_fetch_and_add(&stats->direct_download_total, len);
+			}
 		}
 	}
 
-	stats = bpf_map_lookup_elem(&conn_traffic_map, conn_key);
-	if (!stats) {
-		bpf_map_update_elem(&conn_traffic_map, conn_key, &initial_stats, BPF_NOEXIST);
+	// Only track flows originating from local devices/host in conn_traffic_map.
+	if (is_private_or_local_ip(&conn_key->sip)) {
 		stats = bpf_map_lookup_elem(&conn_traffic_map, conn_key);
-	}
-	if (stats) {
-		if (is_upload) {
-			if (is_proxy) __sync_fetch_and_add(&stats->proxy_upload_total, len);
-			else __sync_fetch_and_add(&stats->direct_upload_total, len);
-		} else {
-			if (is_proxy) __sync_fetch_and_add(&stats->proxy_download_total, len);
-			else __sync_fetch_and_add(&stats->direct_download_total, len);
+		if (!stats) {
+			bpf_map_update_elem(&conn_traffic_map, conn_key, &initial_stats, BPF_NOEXIST);
+			stats = bpf_map_lookup_elem(&conn_traffic_map, conn_key);
+		}
+		if (stats) {
+			if (is_upload) {
+				if (is_proxy) __sync_fetch_and_add(&stats->proxy_upload_total, len);
+				else __sync_fetch_and_add(&stats->direct_upload_total, len);
+			} else {
+				if (is_proxy) __sync_fetch_and_add(&stats->proxy_download_total, len);
+				else __sync_fetch_and_add(&stats->direct_download_total, len);
+			}
 		}
 	}
 }

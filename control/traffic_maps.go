@@ -235,6 +235,9 @@ func isValidConn(srcIP, dstIP net.IP, localIPs map[string]struct{}, subnets []*n
 	if srcIP.IsMulticast() || srcIP.IsLinkLocalMulticast() || srcIP.IsInterfaceLocalMulticast() || srcIP.IsUnspecified() || srcIP.Equal(net.IPv4bcast) {
 		return false
 	}
+	if !isValidDeviceIP(srcIP, subnets) {
+		return false
+	}
 	// Hide connections destined to the node itself (e.g. dashboard polling)
 	if _, ok := localIPs[dstIP.String()]; ok {
 		return false
