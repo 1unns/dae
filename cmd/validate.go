@@ -107,6 +107,7 @@ func validateRoutingRules(log *logrus.Logger, conf *config.Config, externGeoData
 		outboundNames[group.Name] = struct{}{}
 	}
 	resolveOutbound := func(name string) error {
+		switch name {
 		case consts.OutboundDirect.String(), consts.OutboundBlock.String(),
 			consts.OutboundLogicalOr.String(), consts.OutboundLogicalAnd.String(),
 			consts.OutboundMustRules.String(), consts.OutboundControlPlaneRouting.String(),
