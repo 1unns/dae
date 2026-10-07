@@ -106,6 +106,9 @@ func endpointNetworkTypeForSelection(requestedNetworkType *dialer.NetworkType, a
 
 func (c *ControlPlane) chooseProxyDialer(p *proxyDialParam) (*proxyDialResult, error) {
 	outboundIndex := p.Outbound
+	if outboundIndex == consts.OutboundControlPlaneDirect {
+		outboundIndex = consts.OutboundDirect
+	}
 	domain := p.Domain
 	src := p.Src
 	dst := p.Dest

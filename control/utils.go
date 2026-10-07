@@ -169,6 +169,9 @@ func (c *controlPlaneCore) retrieveEmbeddedRoutingResult(tuples *bpfTuplesKey, l
 }
 
 func routingResultFromConnState(mark uint32, must uint8, outbound uint8, mac [6]uint8, dscp uint8, pname [16]uint8, pid uint32, routingEpochSlot uint8, datapathGeneration uint16) bpfRoutingResult {
+	if outbound == uint8(consts.OutboundControlPlaneDirect) {
+		outbound = uint8(consts.OutboundDirect)
+	}
 	var routingResult bpfRoutingResult
 	routingResult.Mark = mark
 	routingResult.Must = must
