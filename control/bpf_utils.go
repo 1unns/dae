@@ -372,6 +372,8 @@ type bpfDataplaneMaps struct {
 	AliveBlockRateMap        *ebpf.Map `ebpf:"alive_block_rate_map"`
 	BpfStatsMap              *ebpf.Map `ebpf:"bpf_stats_map"`
 	ConnStateMap             *ebpf.Map `ebpf:"conn_state_map"`
+	DeviceTrafficMap         *ebpf.Map `ebpf:"device_traffic_map"`
+	ConnTrafficMap           *ebpf.Map `ebpf:"conn_traffic_map"`
 	ConntrackArgsMap         *ebpf.Map `ebpf:"conntrack_args_map"`
 	CookiePidMap             *ebpf.Map `ebpf:"cookie_pid_map"`
 	DaeIfindexMap            *ebpf.Map `ebpf:"dae_ifindex_map"`
@@ -791,6 +793,8 @@ func assignDataplaneToBpf(bpf *bpfObjects, dp *bpfDataplane) {
 	bpf.AliveBlockRateMap = dp.AliveBlockRateMap
 	bpf.BpfStatsMap = dp.BpfStatsMap
 	bpf.ConnStateMap = dp.ConnStateMap
+	bpf.DeviceTrafficMap = dp.DeviceTrafficMap
+	bpf.ConnTrafficMap = dp.ConnTrafficMap
 	bpf.ConntrackArgsMap = dp.ConntrackArgsMap
 	bpf.CookiePidMap = dp.CookiePidMap
 	bpf.DaeIfindexMap = dp.DaeIfindexMap
