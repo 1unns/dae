@@ -81,6 +81,31 @@ func (c *controlPlaneCore) RetrieveRoutingResult(src, dst netip.AddrPort, l4prot
 	return c.retrieveRoutingHandoffResult(&tuples)
 }
 
+func (c *ControlPlane) UpdateConnRouting(src, dst netip.AddrPort, l4proto uint8, outbound uint8, mark uint32) error {
+	if c == nil || c.core == nil {
+		return nil
+	}
+	return c.core.UpdateConnRouting(src, dst, l4proto, outbound, mark)
+}
+
+func (c *controlPlaneCore) UpdateConnRouting(src, dst netip.AddrPort, l4proto uint8, outbound uint8, mark uint32) error {
+	if c == nil {
+		return nil
+	}
+	bpf := c.bpf.Load()
+	if bpf == nil || bpf.ConnStateMap == nil {
+		return nil
+	}
+	tuples := bpfTuplesKeyFromAddrPorts(src, dst, l4proto)
+	var connState bpfConnState
+	if err := bpf.ConnStateMap.Lookup(&tuples, &connState); err != nil {
+		return err
+	}
+	connState.Meta.Data.Outbound = outbound
+	connState.Meta.Data.Mark = mark
+	return bpf.ConnStateMap.Update(&tuples, &connState, ebpf.UpdateExist)
+}
+
 func (c *controlPlaneCore) retrieveEmbeddedRoutingResult(tuples *bpfTuplesKey, l4proto uint8) (*bpfRoutingResult, error) {
 	bpf := c.bpf.Load()
 	var routingResult bpfRoutingResult

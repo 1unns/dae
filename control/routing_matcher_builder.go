@@ -334,6 +334,8 @@ func (b *RoutingMatcherBuilder) outboundToId(outbound string) (uint8, error) {
 		// whitelist to userspace for sniffed-domain re-routing. They carry no
 		// group and must never register as a health-checked reference.
 		outboundId = uint8(consts.OutboundControlPlaneRouting)
+	case consts.OutboundControlPlaneDirect.String():
+		outboundId = uint8(consts.OutboundControlPlaneDirect)
 	default:
 		var ok bool
 		outboundId, ok = b.outboundName2Id[outbound]

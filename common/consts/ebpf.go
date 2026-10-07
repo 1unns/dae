@@ -39,6 +39,8 @@ func (i OutboundIndex) String() string {
 		return "block"
 	case OutboundControlPlaneRouting:
 		return "<Control Plane Routing>"
+	case OutboundControlPlaneDirect:
+		return "<Control Plane Direct>"
 	case OutboundLogicalOr:
 		return "<OR>"
 	case OutboundLogicalAnd:

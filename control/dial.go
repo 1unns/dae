@@ -147,6 +147,20 @@ func (c *ControlPlane) chooseProxyDialer(p *proxyDialParam) (*proxyDialResult, e
 			consts.OutboundControlPlaneRouting.String(),
 			outboundIndex.String(),
 		)
+
+		var l4proto uint8
+		if p.Network == "udp" {
+			l4proto = consts.IPPROTO_UDP
+		} else {
+			l4proto = consts.IPPROTO_TCP
+		}
+		var bpfOutbound uint8
+		if outboundIndex == consts.OutboundDirect {
+			bpfOutbound = uint8(consts.OutboundControlPlaneDirect)
+		} else {
+			bpfOutbound = uint8(outboundIndex)
+		}
+		_ = c.UpdateConnRouting(src, dst, l4proto, bpfOutbound, mark)
 	}
 
 	if mark == 0 {

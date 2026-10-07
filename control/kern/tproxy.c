@@ -2822,6 +2822,10 @@ static __always_inline bool is_private_or_local_ip(const union ip6 *ip) {
 	return false;
 }
 
+static __always_inline bool is_outbound_direct(__u8 outbound) {
+	return outbound == OUTBOUND_DIRECT || outbound == OUTBOUND_CONTROL_PLANE_DIRECT;
+}
+
 static __always_inline void accumulate_traffic_stats(__u32 len, const union ip6 *device_ip, const struct tuples_key *conn_key, bool is_upload, bool is_proxy) {
 	if (is_multicast_or_broadcast(&conn_key->dip) || is_multicast_or_broadcast(&conn_key->sip)) {
 		return;
@@ -2890,8 +2894,10 @@ tproxy_lan_egress_refresh(__u32 len, struct tuples *tuples, const struct tcphdr 
 			      NULL, NULL, NULL, NULL,
 			      0, NULL, 0, ROUTING_EPOCH_SLOT_UNKNOWN);
 		if (tcp_state && tcp_state->meta.data.has_routing) {
-			bool is_proxy = tcp_state->meta.data.outbound != OUTBOUND_DIRECT;
-			accumulate_traffic_stats(len, &tuples->five.dip, &reversed_tuples_key, false, is_proxy);
+			if (tcp_state->meta.data.outbound != OUTBOUND_CONTROL_PLANE_ROUTING) {
+				bool is_proxy = !is_outbound_direct(tcp_state->meta.data.outbound);
+				accumulate_traffic_stats(len, &tuples->five.dip, &reversed_tuples_key, false, is_proxy);
+			}
 		}
 	} else if (l4proto == IPPROTO_UDP) {
 		if (udph->source == bpf_htons(53) || udph->dest == bpf_htons(53))
@@ -2904,8 +2910,10 @@ tproxy_lan_egress_refresh(__u32 len, struct tuples *tuples, const struct tcphdr 
 			      NULL, NULL, NULL, NULL,
 			      0, NULL, 0, ROUTING_EPOCH_SLOT_UNKNOWN);
 		if (udp_state && udp_state->meta.data.has_routing) {
-			bool is_proxy = udp_state->meta.data.outbound != OUTBOUND_DIRECT;
-			accumulate_traffic_stats(len, &tuples->five.dip, &reversed_tuples_key, false, is_proxy);
+			if (udp_state->meta.data.outbound != OUTBOUND_CONTROL_PLANE_ROUTING) {
+				bool is_proxy = !is_outbound_direct(udp_state->meta.data.outbound);
+				accumulate_traffic_stats(len, &tuples->five.dip, &reversed_tuples_key, false, is_proxy);
+			}
 		}
 	}
 
@@ -3068,8 +3076,10 @@ tproxy_lan_ingress_role(struct __sk_buff *skb, __u32 link_h_len,
 		outbound = tcp_state->meta.data.outbound;
 		mark = tcp_state->meta.data.mark;
 
-		bool is_proxy = outbound != OUTBOUND_DIRECT;
-		accumulate_traffic_stats(skb->len, &pkt->tuples.five.sip, &pkt->tuples.five, true, is_proxy);
+		if (outbound != OUTBOUND_CONTROL_PLANE_ROUTING) {
+			bool is_proxy = !is_outbound_direct(outbound);
+			accumulate_traffic_stats(skb->len, &pkt->tuples.five.sip, &pkt->tuples.five, true, is_proxy);
+		}
 
 		if (outbound == OUTBOUND_DIRECT) {
 			skb->mark = mark;
@@ -3124,7 +3134,10 @@ tproxy_lan_ingress_role(struct __sk_buff *skb, __u32 link_h_len,
 					goto block;
 				}
 
-				accumulate_traffic_stats(skb->len, &pkt->tuples.five.sip, &pkt->tuples.five, true, true);
+				if (outbound != OUTBOUND_CONTROL_PLANE_ROUTING) {
+					bool is_proxy = !is_outbound_direct(outbound);
+					accumulate_traffic_stats(skb->len, &pkt->tuples.five.sip, &pkt->tuples.five, true, is_proxy);
+				}
 				/* last_seen_ns already refreshed by mark_udp_seen. */
 				pkt->datapath_generation = udp_state->datapath_generation;
 				return redirect_lan_packet_to_control_plane(
@@ -3302,7 +3315,9 @@ tproxy_lan_ingress_role(struct __sk_buff *skb, __u32 link_h_len,
 		(pkt->l4proto == IPPROTO_TCP && tcp_state) ||
 		(pkt->l4proto == IPPROTO_UDP &&
 		 udp_state_status != UDP_CONN_STATE_STATUS_EXISTING);
-	accumulate_traffic_stats(skb->len, &pkt->tuples.five.sip, &pkt->tuples.five, true, true);
+	if (outbound != OUTBOUND_CONTROL_PLANE_ROUTING) {
+		accumulate_traffic_stats(skb->len, &pkt->tuples.five.sip, &pkt->tuples.five, true, true);
+	}
 	return redirect_lan_packet_to_control_plane(
 		skb, link_h_len, pkt,
 		build_routing_meta(outbound, mark, must, pkt->tuples.dscp).raw,

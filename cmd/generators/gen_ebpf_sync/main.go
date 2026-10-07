@@ -119,7 +119,7 @@ func writeGo(path string, spec syncSpec) error {
 		fmt.Fprintf(&b, "\t%s OutboundIndex = 0x%X\n", goOutboundName(nv.Name), nv.Value)
 	}
 	b.WriteString("\tOutboundUserDefinedMin OutboundIndex = OutboundBlock + 1\n")
-	b.WriteString("\tOutboundUserDefinedMax               = OutboundMustRules - 1\n")
+	b.WriteString("\tOutboundUserDefinedMax               = OutboundControlPlaneDirect - 1\n")
 	b.WriteString(")\n\n")
 
 	b.WriteString("type L4ProtoType uint8\n\n")
@@ -188,6 +188,8 @@ func goOutboundName(cName string) string {
 		return "OutboundMustRules"
 	case "CONTROL_PLANE_ROUTING":
 		return "OutboundControlPlaneRouting"
+	case "CONTROL_PLANE_DIRECT":
+		return "OutboundControlPlaneDirect"
 	case "LOGICAL_OR":
 		return "OutboundLogicalOr"
 	case "LOGICAL_AND":
