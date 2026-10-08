@@ -3155,7 +3155,11 @@ func (c *ControlPlane) Close() (err error) {
 		if manager, owned := c.controlPlaneSessionManager(); owned && manager != nil {
 			c.closeErr = stderrors.Join(c.closeErr, manager.Close())
 		}
-		c.udpIngressAdmission.closeAndWait()
+		if !c.udpIngressAdmission.closeAndWaitWithTimeout(controlPlaneDeferredCleanupTimeout) {
+			if c.log != nil {
+				c.log.Warn("ControlPlane.Close: udpIngressAdmission drain timed out; continuing close")
+			}
+		}
 
 		var stopWg sync.WaitGroup
 		stopWg.Add(2)

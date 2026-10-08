@@ -100,14 +100,22 @@ func (g *routingEpochIngressGate) release() {
 	}
 	g.waitMu.Lock()
 	if g.drained != nil {
-		close(g.drained)
+		select {
+		case <-g.drained:
+		default:
+			close(g.drained)
+		}
 	}
 	g.waitMu.Unlock()
 }
 
 func (g *routingEpochIngressGate) closeAndWait() {
+	g.closeAndWaitWithTimeout(3 * time.Second)
+}
+
+func (g *routingEpochIngressGate) closeAndWaitWithTimeout(timeout time.Duration) bool {
 	if g == nil {
-		return
+		return true
 	}
 	for {
 		state := g.state.Load()
@@ -119,19 +127,31 @@ func (g *routingEpochIngressGate) closeAndWait() {
 		}
 	}
 	if g.state.Load() == routingEpochIngressClosed {
-		return
+		return true
 	}
 	g.waitMu.Lock()
 	if g.state.Load() == routingEpochIngressClosed {
 		g.waitMu.Unlock()
-		return
+		return true
 	}
 	if g.drained == nil {
 		g.drained = make(chan struct{})
 	}
 	drained := g.drained
 	g.waitMu.Unlock()
-	<-drained
+
+	if timeout <= 0 {
+		<-drained
+		return true
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-drained:
+		return true
+	case <-timer.C:
+		return false
+	}
 }
 
 // LinkRoutingEpochPeer links two generations that share one BPF object during
@@ -514,7 +534,11 @@ func (c *ControlPlane) StopRoutingEpochExecutionWithTimeout(timeout time.Duratio
 		return
 	}
 	c.closeRoutingEpochExecution()
-	c.udpIngressAdmission.closeAndWait()
+	if timeout > 0 {
+		c.udpIngressAdmission.closeAndWaitWithTimeout(timeout)
+	} else {
+		c.udpIngressAdmission.closeAndWait()
+	}
 	if c.drainTracker == nil {
 		return
 	}
