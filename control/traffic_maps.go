@@ -149,6 +149,13 @@ func (c *controlPlaneCore) ClearTrafficMaps() error {
 	if c == nil {
 		return nil
 	}
+
+	c.trafficCache.Lock()
+	c.trafficCache.devices = nil
+	c.trafficCache.conns = nil
+	c.trafficCache.lastRead = time.Time{}
+	c.trafficCache.Unlock()
+
 	bpf := c.bpf.Load()
 	if bpf == nil {
 		return nil
