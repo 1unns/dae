@@ -536,7 +536,9 @@ func (c *ControlPlane) handleRetainedUDPEndpoint(data []byte, src, realDst netip
 	// meter it through the plane-bound recorder like every other egress
 	// write: the global recorder would attribute bytes of a retiring
 	// generation to whichever store is published mid-reload.
-	c.recordUploadTraffic(int64(len(data)))
+	if isProxyBackedDialer(ue.Dialer) {
+		c.recordUploadTraffic(int64(len(data)))
+	}
 	if lifecycle, lifecycleOK := newUdpSessionLifecycleContext(ue, ""); lifecycleOK {
 		lifecycle.reportTrafficSuccess()
 	}
@@ -759,7 +761,9 @@ func (c *ControlPlane) handlePktOwned(data []byte, src, realDst netip.AddrPort, 
 				ue.TrackUdpConnStateTuplePair(realSrc, realDst)
 				_, err = ue.WriteTo(data, dialTarget)
 				if err == nil {
-					c.recordUploadTraffic(int64(len(data)))
+					if isProxyBackedDialer(ue.Dialer) {
+						c.recordUploadTraffic(int64(len(data)))
+					}
 					if lifecycle, ok := newUdpSessionLifecycleContext(ue, ""); ok {
 						lifecycle.reportTrafficSuccess()
 					}
@@ -1036,7 +1040,11 @@ getNew:
 			Ctx: c.ctx,
 			// Handler handles response packets and send it to the client.
 			Handler: func(ue *UdpEndpoint, data []byte, from netip.AddrPort) (err error) {
-				return forwardUdpEndpointReplyToClient(replyLog, ue, data, from, realSrc, nil, RecordDownloadTraffic)
+				var recordDownload func(int64)
+				if ue != nil && isProxyBackedDialer(ue.Dialer) {
+					recordDownload = RecordDownloadTraffic
+				}
+				return forwardUdpEndpointReplyToClient(replyLog, ue, data, from, realSrc, nil, recordDownload)
 			},
 			NatTimeout:     natTimeout,
 			ConnStateOwner: connStateOwner,
@@ -1051,7 +1059,7 @@ getNew:
 			// and the health report for batched endpoints. The plain
 			// (non-batched) path keeps the inline accounting below.
 			SentReporter: func(sent *UdpEndpoint, datagrams, bytes int) {
-				if bytes > 0 {
+				if bytes > 0 && sent != nil && isProxyBackedDialer(sent.Dialer) {
 					c.recordUploadTraffic(int64(bytes))
 				}
 				if datagrams <= 0 {
@@ -1192,7 +1200,7 @@ getNew:
 			retry++
 			goto getNew
 		}
-		if !batchOwnsAccounting {
+		if !batchOwnsAccounting && isProxyBackedDialer(ue.Dialer) {
 			c.recordUploadTraffic(int64(len(payloads[packetIndex])))
 		}
 		packetIndex++

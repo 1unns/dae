@@ -137,9 +137,13 @@ func (c *controlPlaneCore) ReadTrafficMaps() (devices []DeviceTraffic, conns []C
 	return devices, conns
 }
 
-// ClearTrafficMaps clears the traffic statistics eBPF maps.
+// ClearTrafficMaps clears the traffic statistics eBPF maps and resets runtime traffic stats.
 func (c *ControlPlane) ClearTrafficMaps() error {
-	if c == nil || c.core == nil {
+	if c == nil {
+		return nil
+	}
+	c.ResetRuntimeStats()
+	if c.core == nil {
 		return nil
 	}
 	return c.core.ClearTrafficMaps()

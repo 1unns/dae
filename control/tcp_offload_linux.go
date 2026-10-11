@@ -145,6 +145,9 @@ func (c *ControlPlane) tryOffloadTCPRelay(ctx context.Context, left, right netpr
 		return false, "fast_sock/pause/sent unavailable", nil
 	}
 
+	leftRecord = normalizeTrafficRecord(leftRecord)
+	rightRecord = normalizeTrafficRecord(rightRecord)
+
 	// Flush any userspace-buffered prefix (sniff leftovers) before registering,
 	// so the kernel receive queues are the only source of pending data.
 	// Direction note: bytes taken from left (client side) are written to right

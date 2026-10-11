@@ -303,10 +303,19 @@ func (c *ControlPlane) handleConnWithRoutingResultOwned(
 	}
 	defer closeEstablishedTCPFlow(rConn, flow)
 
+	var (
+		downloadRecord func(int64)
+		uploadRecord   func(int64)
+	)
+	if isProxyDialResult(res) {
+		downloadRecord = RecordDownloadTraffic
+		uploadRecord = RecordUploadTraffic
+	}
+
 	// Attempt kernel-side splice via fast_sock/sk_skb before falling back to
 	// the user-space relay. A registered offload session blocks until both
 	// sockets close; any pre-registration failure falls through silently.
-	offloaded, offloadReason, offloadErr := c.tryOffloadTCPRelay(flow.Context(), lRelayConn, rConn, RecordDownloadTraffic, RecordUploadTraffic)
+	offloaded, offloadReason, offloadErr := c.tryOffloadTCPRelay(flow.Context(), lRelayConn, rConn, downloadRecord, uploadRecord)
 	if offloadErr != nil {
 		return fmt.Errorf("handleTCP offloaded relay error: %w", offloadErr)
 	}
@@ -325,7 +334,20 @@ func (c *ControlPlane) handleConnWithRoutingResultOwned(
 		return nil
 	}
 
-	return relayEstablishedTCPFlow(flow, lRelayConn, rConn, c.log, src, dst)
+	return relayEstablishedTCPFlow(flow, lRelayConn, rConn, c.log, src, dst, downloadRecord, uploadRecord)
+}
+
+func isProxyDialResult(res *proxyDialResult) bool {
+	if res == nil {
+		return false
+	}
+	if res.OutboundIndex == consts.OutboundDirect || res.OutboundIndex == consts.OutboundControlPlaneDirect {
+		return false
+	}
+	if !isProxyBackedDialer(res.Dialer) {
+		return false
+	}
+	return true
 }
 
 func closeEstablishedTCPFlow(egress netproxy.Conn, flow *FlowRuntime) {
@@ -344,8 +366,10 @@ func relayEstablishedTCPFlow(
 	log *logrus.Logger,
 	src netip.AddrPort,
 	dst netip.AddrPort,
+	downloadRecord func(int64),
+	uploadRecord func(int64),
 ) error {
-	if err := RelayTCPContextWithRecords(flow.Context(), ingress, egress, RecordDownloadTraffic, RecordUploadTraffic); err != nil {
+	if err := RelayTCPContextWithRecords(flow.Context(), ingress, egress, downloadRecord, uploadRecord); err != nil {
 		if daerrors.IsIgnorableTCPRelayError(err) {
 			return nil // ignore normal connection closure errors
 		}

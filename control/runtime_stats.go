@@ -153,6 +153,20 @@ func (c *ControlPlane) unpublishRuntimeStats() {
 	unpublishRuntimeStatsStore(c.runtimeStats)
 }
 
+func (s *runtimeStats) reset() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.currentUploadBytes.Store(0)
+	s.currentDownloadBytes.Store(0)
+	s.uploadTotal.Store(0)
+	s.downloadTotal.Store(0)
+	s.historyLen = 0
+	s.historyStart = 0
+}
+
 func (s *runtimeStats) record(upload uint64, download uint64) {
 	if s == nil {
 		return
@@ -314,6 +328,13 @@ func (c *ControlPlane) recordDownloadTraffic(n int64) {
 		return
 	}
 	c.runtimeStatsStore().record(0, uint64(n))
+}
+
+func (c *ControlPlane) ResetRuntimeStats() {
+	if c == nil {
+		return
+	}
+	c.runtimeStatsStore().reset()
 }
 
 func (c *ControlPlane) SnapshotRuntimeStats(windowSec int, maxPoints int) RuntimeStatsSnapshot {

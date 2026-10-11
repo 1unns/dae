@@ -147,7 +147,7 @@ func TestBatchCallerSideAccountingIsGated(t *testing.T) {
 	if !strings.Contains(text, "batchOwnsAccounting := ue.sentReporter != nil") {
 		t.Fatal("udp.go must derive whether the aggregator owns the accounting")
 	}
-	if !strings.Contains(text, "if !batchOwnsAccounting {\n\t\t\tc.recordUploadTraffic(int64(len(payloads[packetIndex])))") {
+	if !strings.Contains(text, "if !batchOwnsAccounting && isProxyBackedDialer(ue.Dialer) {\n\t\t\tc.recordUploadTraffic(int64(len(payloads[packetIndex])))") {
 		t.Fatal("recordUploadTraffic must be gated on the aggregator not owning the accounting")
 	}
 	if !strings.Contains(text, "if !batchOwnsAccounting {\n\t\tif lifecycle, ok := newUdpSessionLifecycleContext(ue, \"\"); ok {") {
