@@ -202,8 +202,31 @@ func (c *controlPlaneCore) ClearTrafficMaps() error {
 }
 
 
-// keyBytesToArray converts a byte slice to a [16]uint8 array for isIPv4ZeroPrefix.
+var (
+	cachedLocalNetLock sync.RWMutex
+	cachedLocalIPs     map[string]struct{}
+	cachedLocalSubnets []*net.IPNet
+	cachedLocalNetTime time.Time
+)
+
+// getLocalNetInfo returns cached local IP addresses and subnets, refreshed every 30 seconds.
 func getLocalNetInfo() (map[string]struct{}, []*net.IPNet) {
+	cachedLocalNetLock.RLock()
+	if time.Since(cachedLocalNetTime) < 30*time.Second && cachedLocalIPs != nil {
+		ips := cachedLocalIPs
+		subnets := cachedLocalSubnets
+		cachedLocalNetLock.RUnlock()
+		return ips, subnets
+	}
+	cachedLocalNetLock.RUnlock()
+
+	cachedLocalNetLock.Lock()
+	defer cachedLocalNetLock.Unlock()
+
+	if time.Since(cachedLocalNetTime) < 30*time.Second && cachedLocalIPs != nil {
+		return cachedLocalIPs, cachedLocalSubnets
+	}
+
 	localIPs := make(map[string]struct{})
 	var subnets []*net.IPNet
 	addrs, err := net.InterfaceAddrs()
@@ -221,6 +244,9 @@ func getLocalNetInfo() (map[string]struct{}, []*net.IPNet) {
 			}
 		}
 	}
+	cachedLocalIPs = localIPs
+	cachedLocalSubnets = subnets
+	cachedLocalNetTime = time.Now()
 	return localIPs, subnets
 }
 

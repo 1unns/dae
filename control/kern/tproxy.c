@@ -544,12 +544,11 @@ struct traffic_stats {
 };
 
 struct {
-	__uint(type, BPF_MAP_TYPE_HASH);
-	__uint(max_entries, MAX_CONN_STATE_NUM);
+	__uint(type, BPF_MAP_TYPE_LRU_HASH);
+	__uint(max_entries, 16384);
 	__type(key, struct tuples_key);
 	__type(value, struct traffic_stats);
 	__uint(pinning, LIBBPF_PIN_BY_NAME);
-	__uint(map_flags, BPF_F_NO_PREALLOC);
 } conn_traffic_map SEC(".maps");
 
 struct {
@@ -2332,7 +2331,7 @@ static __always_inline void copy_reversed_tuples(struct tuples_key *key,
 	dst->l4proto = key->l4proto;
 }
 
-static __always_inline bool is_short_lived_udp_traffic(struct tuples_key *key)
+static __always_inline bool is_short_lived_udp_traffic(const struct tuples_key *key)
 {
 	return key->l4proto == IPPROTO_UDP &&
 	       (key->dport == bpf_htons(53) || key->sport == bpf_htons(53));
@@ -2859,7 +2858,8 @@ static __always_inline void accumulate_traffic_stats(__u32 len, const union ip6 
 	}
 
 	// Only track flows originating from local devices/host in conn_traffic_map.
-	if (is_private_or_local_ip(&conn_key->sip)) {
+	// Skip short-lived UDP (e.g. DNS port 53) and local/private destinations to prevent conn_traffic_map churn and leakage.
+	if (!is_short_lived_udp_traffic(conn_key) && !is_private_or_local_ip(&conn_key->dip) && is_private_or_local_ip(&conn_key->sip)) {
 		stats = bpf_map_lookup_elem(&conn_traffic_map, conn_key);
 		if (!stats) {
 			bpf_map_update_elem(&conn_traffic_map, conn_key, &initial_stats, BPF_NOEXIST);
